@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}PDF Ekle{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>PDF Ekle</h1>
+    <p>Bir PDF dosyasını, ana PDF'nin istediğiniz sayfasından sonra ekleyin.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>Ana PDF Dosyası</label>
+            <input type="file" name="main_pdf" accept=".pdf" required>
+            <small>Ekleme yapılacak ana PDF dosyası.</small>
+
+            <label>Eklenecek PDF Dosyası</label>
+            <input type="file" name="insert_pdf" accept=".pdf" required>
+            <small>Ana PDF'ye eklenecek PDF dosyası.</small>
+
+            <label>Hangi sayfadan sonra eklensin?</label>
+            <input type="number" name="after_page" min="0" value="0" required
+                   placeholder="Örn: 3 (0 = başa ekle)">
+            <small>0 girerseniz en başa eklenir. Ana PDF'nin kaçıncı sayfasından sonra eklenmesini istiyorsanız o sayıyı girin.</small>
+
+            <button type="submit" class="primary-btn">PDF'yi Ekle</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

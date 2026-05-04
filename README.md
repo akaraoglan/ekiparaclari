@@ -1,0 +1,23 @@
+# Ekip Araçları - Kategorili Sade Yapı
+
+Bu sürüm küçük ekip kullanımı için sade tutulmuştur.
+
+## Yapı
+
+- `app.py` -> ana Flask uygulaması
+- `tool_registry.py` -> araç kartları ve kategoriler
+- `tools/` -> her araç ayrı `.py` dosyası
+- `templates/` -> sayfalar
+- `static/` -> CSS ve JS
+
+## Yeni araç ekleme
+
+1. `tools/` içine yeni aracın `.py` dosyasını ekleyin.
+2. Route'u `app.py` içine ekleyin.
+3. Aracın kart ve kategori bilgisini `tool_registry.py` içine ekleyin.
+4. Gerekirse ilgili HTML şablonunu oluşturun.
+
+## Kurulum
+
+pip install -r requirements.txt
+python app.py

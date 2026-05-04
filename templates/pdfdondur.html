@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}PDF Döndür{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>PDF Döndür</h1>
+    <p>Tüm sayfaları ya da seçtiğiniz sayfaları döndürün.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>PDF Dosyası</label>
+            <input type="file" name="pdf_file" accept=".pdf" required>
+
+            <label>Döndürme Açısı</label>
+            <select name="rotation">
+                <option value="90">90°</option>
+                <option value="180">180°</option>
+                <option value="270">270°</option>
+            </select>
+
+            <label>Sayfalar (opsiyonel)</label>
+            <input type="text" name="pages" placeholder="Boş bırakılırsa tüm sayfalar döner. Örn: 1-2,5">
+
+            <button type="submit" class="primary-btn">Döndür</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

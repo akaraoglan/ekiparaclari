@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Ekip Araçları{% endblock %}
+{% block content %}
+<section class="hero">
+    <h1>Ekip Araçları</h1>
+    <p>Python ile geliştirilmiş araçlar arasında arama yapın ve doğrudan açın.</p>
+    <form method="GET" action="{{ url_for('index') }}" class="search-form">
+        <input type="hidden" name="category" value="{{ selected_category }}">
+        <input type="text" name="q" value="{{ query }}" placeholder="Örn: pdf ayır, pdf döndür..." class="search-input" autocomplete="off">
+        <button type="submit" class="search-button">Ara</button>
+    </form>
+</section>
+
+<section class="content-layout">
+    <aside class="sidebar">
+        <div class="sidebar-card">
+            <h3>Kategoriler</h3>
+            <a class="category-link {% if not selected_category %}active{% endif %}" href="{{ url_for('index', q=query) }}">Tümü</a>
+            {% for category in categories %}
+            <a class="category-link {% if selected_category == category %}active{% endif %}" href="{{ url_for('index', category=category, q=query) }}">{{ category }}</a>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <section class="results">
+        <div class="results-head">
+            <h2>{% if selected_category %}{{ selected_category }}{% else %}Tüm Araçlar{% endif %}</h2>
+            <span>{{ total }} sonuç</span>
+        </div>
+        <div class="tool-grid">
+            {% for tool in tools %}
+            <a href="{{ tool.url }}" class="tool-card">
+                <h3>{{ tool.name }}</h3>
+                <div class="tool-category">{{ tool.category }}</div>
+                <p>{{ tool.description }}</p>
+                <div class="tool-tags">
+                    {% for keyword in tool.keywords %}
+                    <span>{{ keyword }}</span>
+                    {% endfor %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% if not tools %}
+        <div class="empty-state">Aradığınız kritere uygun araç bulunamadı.</div>
+        {% endif %}
+    </section>
+</section>
+{% endblock %}

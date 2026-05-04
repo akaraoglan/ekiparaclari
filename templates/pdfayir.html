@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}PDF Ayır{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>PDF Ayır</h1>
+    <p>Belirli sayfaları alın veya PDF dosyasını tek tek sayfalara bölün.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>PDF Dosyası</label>
+            <input type="file" name="pdf_file" accept=".pdf" required>
+
+            <label>İşlem Türü</label>
+            <select name="mode" id="splitMode">
+                <option value="range">Belirli sayfaları al</option>
+                <option value="single">Tek tek sayfalara böl</option>
+            </select>
+
+            <div id="rangeBox">
+                <label>Sayfa Aralığı</label>
+                <input type="text" name="page_ranges" placeholder="Örn: 1-3,5,8-10">
+                <small>Yalnızca ilk seçenekte kullanılır.</small>
+            </div>
+
+            <button type="submit" class="primary-btn">İşlemi Başlat</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

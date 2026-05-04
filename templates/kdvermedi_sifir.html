@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Vermeyenler ve Sıfırlar{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Vermeyenler ve Sıfırlar</h1>
+    <p>KDV İadesi Kontrol Raporundan Vermedi veya 0.00 olan 1. Alt Mükellefleri bulur ve Excel'e aktarır.</p>
+    
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>KDV İadesi Kontrol Raporu PDF Dosyası</label>
+            <input type="file" name="pdf_file" accept=".pdf" required>
+            
+            <button type="submit" class="primary-btn">Analiz Et ve İndir</button>
+        </form>
+    </div>
+    
+    <div class="info-box">
+        <h3>Açıklama</h3>
+        <ul>
+            <li>KDV İadesi Kontrol Raporu PDF dosyasını yükleyin</li>
+            <li>Araç 2. Alt Mükellef tablosunda "Karşılaştırmalı Alış-Satış Analizi" sütununda Vermedi veya 0.00 olan kayıtları bulur</li>
+            <li>İki Excel sayfası oluşturulur:
+                <ul>
+                    <li><strong>Vermedi_Sifir:</strong> Vermedi/0.00 olan mükellef bilgileri</li>
+                    <li><strong>Kontrol:</strong> Tüm satırlar ve işleme durumu</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

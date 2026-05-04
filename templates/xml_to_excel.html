@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Gelen E Fatura XML To Excel{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Gelen E Fatura XML To Excel</h1>
+    <p>XML e-fatura dosyalarını Excel formatına dönüştürür. Birden fazla dosya seçebilirsiniz.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>XML Dosyaları</label>
+            <input type="file" name="xml_file" accept=".xml" multiple required>
+
+            <button type="submit" class="primary-btn">Dönüştür</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

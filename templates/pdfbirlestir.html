@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}PDF Birleştir{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>PDF Birleştir</h1>
+    <p>Birden fazla PDF dosyasını tek bir PDF dosyasında birleştirin.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>PDF Dosyaları</label>
+            <input type="file" name="pdf_files" accept=".pdf" multiple required>
+            <small>En az iki dosya seçin.</small>
+            <button type="submit" class="primary-btn">Birleştir</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
