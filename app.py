@@ -6,6 +6,7 @@ from tools.pdfayir import split_pdf_by_range, split_pdf_to_single_pages
 from tools.pdfbirlestir import merge_pdfs
 from tools.pdfdondur import rotate_pdf
 from tools.pdfekle import insert_pdf
+from tools.pdfcikar import remove_pdf_pages
 from tools.kdviadesi_kontrol import process_kdviadesi_pdf
 from tools.kdvermedi_sifir import process_vermedi_sifir_pdf
 from tools.xml_to_excel import xml_to_excel
@@ -222,6 +223,32 @@ def kdv_vermedi_sifir():
             flash(f"Hata: {e}", "error")
 
     return render_template("kdvermedi_sifir.html")
+
+@app.route("/pdf/cikar", methods=["GET", "POST"])
+def pdf_cikar():
+    if request.method == "POST":
+        file = request.files.get("pdf_file")
+        if not file or not file.filename:
+            flash("Lütfen bir PDF dosyası seçin.", "error")
+            return render_template("pdfcikar.html")
+
+        pages_to_remove = request.form.get("pages_to_remove", "").strip()
+        if not pages_to_remove:
+            flash("Lütfen çıkarılacak sayfa numaralarını girin. Örnek: 1, 3, 5-8", "error")
+            return render_template("pdfcikar.html")
+
+        safe_name = secure_tr_filename(file.filename)
+        input_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+        file.save(input_path)
+
+        try:
+            output_path = remove_pdf_pages(input_path, OUTPUT_DIR, pages_to_remove)
+            return send_file(output_path, as_attachment=True)
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("pdfcikar.html")
+
 
 @app.route("/xml/efatura", methods=["GET", "POST"])
 def xml_efatura():

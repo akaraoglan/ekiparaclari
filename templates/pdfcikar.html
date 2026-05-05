@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}PDF Çıkar{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>PDF Çıkar</h1>
+    <p>Seçtiğiniz sayfalar PDF'den silinir, geri kalan sayfalar yeni bir PDF olarak indirilir.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>PDF Dosyası</label>
+            <input type="file" name="pdf_file" accept=".pdf" required>
+
+            <label>Çıkarılacak (Silinecek) Sayfalar</label>
+            <input type="text" name="pages_to_remove" placeholder="Örn: 1, 3, 5-8" required>
+            <small>
+                Virgülle ayırarak tek sayfa veya aralık girebilirsiniz.<br>
+                Örnek: 4 sayfalık PDF'de <strong>1, 3</strong> girerseniz → <strong>2. ve 4. sayfalar</strong> yeni PDF olarak iner.
+            </small>
+
+            <button type="submit" class="primary-btn">Sayfaları Çıkar ve İndir</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -24,6 +24,14 @@ TOOLS = [
         "url": "/pdf/dondur"
     },
     {
+        "id": "pdfcikar",
+        "name": "PDF Çıkar",
+        "category": "PDF Araçları",
+        "description": "PDF'den istenmeyen sayfaları siler; geri kalan sayfalar yeni bir PDF olarak indirilir.",
+        "keywords": ["pdf", "çıkar", "sil", "sayfa", "kaldır", "remove"],
+        "url": "/pdf/cikar"
+    },
+    {
         "id": "pdfekle",
         "name": "PDF Ekle",
         "category": "PDF Araçları",
