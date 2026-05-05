@@ -46,6 +46,14 @@ TOOLS = [
         "description": "KDV İadesi Kontrol Raporundan Vermedi veya 0.00 olan 1. Alt Mükellefleri bulur.",
         "keywords": ["kdv", "iades", "vermedi", "sıfır", "0.00", "mükellef"],
         "url": "/kdv/vermedi-sifir"
+    },
+    {
+        "id": "xml_to_excel",
+        "name": "E-Fatura XML → Excel",
+        "category": "E-Fatura Araçları",
+        "description": "Gelen e-fatura XML dosyalarını Excel formatına dönüştürür. Birden fazla dosya seçilebilir.",
+        "keywords": ["xml", "excel", "efatura", "fatura", "dönüştür", "xlsx"],
+        "url": "/xml/efatura"
     }
 ]
 

@@ -11,7 +11,6 @@ import subprocess
 import os
 import uuid
 import pandas as pd
-from tools.common import secure_tr_filename
 
 
 # ---------------------------------------------------------------------------

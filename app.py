@@ -8,7 +8,8 @@ from tools.pdfdondur import rotate_pdf
 from tools.pdfekle import insert_pdf
 from tools.kdviadesi_kontrol import process_kdviadesi_pdf
 from tools.kdvermedi_sifir import process_vermedi_sifir_pdf
-from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename
+from tools.xml_to_excel import xml_to_excel
+from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
 app.secret_key = "degistir-beni"
@@ -221,6 +222,33 @@ def kdv_vermedi_sifir():
             flash(f"Hata: {e}", "error")
 
     return render_template("kdvermedi_sifir.html")
+
+@app.route("/xml/efatura", methods=["GET", "POST"])
+def xml_efatura():
+    if request.method == "POST":
+        files = [f for f in request.files.getlist("xml_file") if f and f.filename]
+        if not files:
+            flash("Lütfen en az bir XML dosyası seçin.", "error")
+            return render_template("xml_to_excel.html")
+
+        saved_paths = []
+        for f in files:
+            safe_name = secure_tr_filename(f.filename)
+            path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+            f.save(path)
+            saved_paths.append(path)
+
+        try:
+            output_paths = [xml_to_excel(p, OUTPUT_DIR) for p in saved_paths]
+            if len(output_paths) == 1:
+                return send_file(output_paths[0], as_attachment=True)
+            zip_path = os.path.join(OUTPUT_DIR, f"efatura_excel_{uuid.uuid4().hex[:8]}.zip")
+            return send_file(zip_files(output_paths, zip_path), as_attachment=True)
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("xml_to_excel.html")
+
 
 if __name__ == "__main__":
     app.run(debug=True)

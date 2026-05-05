@@ -31,16 +31,24 @@ def parse_page_ranges(page_text: str, total_pages: int):
         raise ValueError("Geçerli sayfa aralığı girilmedi.")
     for part in parts:
         if "-" in part:
-            start, end = part.split("-", 1)
-            start = int(start)
-            end = int(end)
+            halves = part.split("-", 1)
+            try:
+                start = int(halves[0])
+                end = int(halves[1])
+            except ValueError:
+                raise ValueError(f"Geçersiz aralık biçimi: '{part}'. Örnek: 1-3")
             if start < 1 or end > total_pages or start > end:
-                raise ValueError(f"Geçersiz aralık: {part}")
+                raise ValueError(
+                    f"Geçersiz aralık: '{part}'. Sayfa numaraları 1 ile {total_pages} arasında olmalı ve başlangıç ≤ bitiş."
+                )
             result.extend(range(start - 1, end))
         else:
-            page = int(part)
+            try:
+                page = int(part)
+            except ValueError:
+                raise ValueError(f"Geçersiz sayfa numarası: '{part}'. Sayısal bir değer girin.")
             if page < 1 or page > total_pages:
-                raise ValueError(f"Geçersiz sayfa: {part}")
+                raise ValueError(f"Geçersiz sayfa: '{part}'. Dosyada {total_pages} sayfa var.")
             result.append(page - 1)
     dedup = []
     for p in result:

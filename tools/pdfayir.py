@@ -29,4 +29,10 @@ def split_pdf_to_single_pages(input_path: str, output_dir: str) -> str:
         created.append(page_path)
 
     zip_path = os.path.join(output_dir, f"pdf_tek_sayfalar_{uuid.uuid4().hex[:8]}.zip")
-    return zip_files(created, zip_path)
+    result = zip_files(created, zip_path)
+    for path in created:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return result
