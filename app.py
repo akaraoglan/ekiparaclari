@@ -27,7 +27,16 @@ ensure_dirs(UPLOAD_DIR, OUTPUT_DIR)
 def before_request():
     cleanup_old_files(OUTPUT_DIR, max_age_hours=12)
 
+
 @app.route("/")
+def home():
+    return render_template("home.html")
+
+@app.route("/rehber")
+def rehber():
+    return render_template("rehber.html")
+
+@app.route("/ekip-araclari")
 def index():
     q = request.args.get("q", "").strip().lower()
     selected_category = request.args.get("category", "").strip()

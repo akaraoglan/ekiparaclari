@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Firma Rehberi</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  color: #333;
+}
+
+nav {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  padding: 16px;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+nav a {
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  font-size: 14px;
+}
+
+nav a:hover {
+  background: rgba(255,255,255, 0.2);
+  transform: translateY(-2px);
+}
+
+nav a.active {
+  background: rgba(255,255,255, 0.3);
+  box-shadow: 0 2px 8px rgba(0,0,0,.2);
+}
+
+header {
+  background: #fff;
+  padding: 20px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  position: sticky;
+  top: 0;
+  z-index: 101;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-toggles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #f0f0f0;
+  color: #333;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.toggle-btn:hover {
+  background: #e0e0e0;
+}
+
+.toggle-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.toggle-btn i {
+  font-size: 14px;
+}
+
+.search {
+  max-width: 1200px;
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  flex-direction: column;
+}
+
+.category-select {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 2px solid #e0e0e0;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  background: #fff;
+  cursor: pointer;
+  max-width: 400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.category-select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.search input {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 2px solid #e0e0e0;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.search input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.search input::placeholder {
+  color: #999;
+}
+
+main {
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 0 12px;
+  display: none;
+  gap: 20px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+main.active {
+  display: flex;
+}
+
+aside {
+  display: none;
+}
+
+.cat {
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: all 0.3s ease;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  background: #f5f5f5;
+  border-left: 3px solid transparent;
+}
+
+.cat:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.cat.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border-left-color: #fff;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.list {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  min-width: 0;
+}
+
+.card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.08);
+  transition: all 0.3s ease;
+  border-top: 4px solid #667eea;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.12);
+}
+
+.card h3 {
+  margin: 0 0 12px 0;
+  color: #333;
+  font-size: 18px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.card-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #666;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.card-address i {
+  color: #667eea;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.card-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.card-phone a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.card-phone a:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.card-phone a i {
+  font-size: 15px;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+  flex-wrap: nowrap;
+}
+
+.card-category {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+iframe {
+  width: 100%;
+  border: none;
+}
+
+.no-results {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+  font-size: 16px;
+  grid-column: 1 / -1;
+}
+
+#scrollToTop {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border: none;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 20px;
+  display: none;
+  z-index: 99;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+#scrollToTop:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+#scrollToTop.show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Gece modu */
+body.dark-mode {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #e0e0e0;
+}
+
+body.dark-mode nav {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+body.dark-mode header {
+  background: #1a1a2e;
+  box-shadow: 0 2px 12px rgba(0,0,0,.4);
+}
+
+body.dark-mode .search input,
+body.dark-mode .category-select {
+  background: #252540;
+  border-color: #3d3d5c;
+  color: #e0e0e0;
+}
+
+body.dark-mode .search input::placeholder {
+  color: #888;
+}
+
+body.dark-mode .search input:focus,
+body.dark-mode .category-select:focus {
+  border-color: #667eea;
+}
+
+body.dark-mode .card {
+  background: #252540;
+  border-top-color: #667eea;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+
+body.dark-mode .card:hover {
+  box-shadow: 0 8px 20px rgba(0,0,0,.4);
+}
+
+body.dark-mode .card h3 {
+  color: #fff;
+}
+
+body.dark-mode .card-address {
+  color: #b0b0b0;
+}
+
+body.dark-mode .cat {
+  background: #252540;
+  color: #b0b0b0;
+}
+
+body.dark-mode .cat:hover {
+  background: #2d2d4a;
+  color: #e0e0e0;
+}
+
+body.dark-mode .cat.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+body.dark-mode .no-results {
+  color: #888;
+}
+
+body.dark-mode .toggle-btn {
+  background: #252540;
+  color: #e0e0e0;
+}
+
+body.dark-mode .toggle-btn:hover {
+  background: #2d2d4a;
+}
+
+body.dark-mode .toggle-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  nav {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  nav a {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  main.active {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .list {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+.search input,
+  .category-select {
+  max-width: 100%;
+  font-size: 16px;
+  }
+
+  /* Mobilde tıklanınca zoom olmasın */
+  .search input,
+  .category-select,
+  nav a,
+  .card-phone a,
+  .card-category {
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 480px) {
+  .toggle-btn .toggle-label {
+    display: none;
+  }
+
+  .toggle-btn {
+    padding: 10px 12px;
+  }
+
+  body {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+
+  nav {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  nav a {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .search input {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  main {
+    margin: 16px auto;
+    padding: 0 10px;
+  }
+
+  aside {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .card h3 {
+    font-size: 16px;
+  }
+
+  .card-phone a {
+    font-size: 13px;
+    padding: 7px 10px;
+  }
+
+  #scrollToTop {
+    bottom: 20px;
+    right: 20px;
+    width: 45px;
+    height: 45px;
+    font-size: 18px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+  <a onclick="showPage('home')" class="active"><i class="fas fa-home"></i> Ana Sayfa</a>
+  <a onclick="showPage('add')"><i class="fas fa-plus-circle"></i> Firma Ekle</a>
+  <a onclick="showPage('contact')"><i class="fas fa-envelope"></i> İletişim</a>
+</nav>
+
+<header>
+  <div class="header-left">
+    <div class="search">
+      <input id="searchFirma" placeholder="🔍 Firma adı ile ara...">
+      <select id="categoryFilter" class="category-select">
+        <option value="">Tümü</option>
+      </select>
+      <input id="searchEtiket" placeholder="🏷️ Etiket ile ara (örn: sunta, kahvehane)">
+    </div>
+  </div>
+  <div class="header-toggles">
+    <button type="button" class="toggle-btn" id="darkModeBtn" title="Gece modu" aria-pressed="false">
+      <i class="fas fa-moon"></i>
+      <span class="toggle-label">Gece modu</span>
+    </button>
+    <button type="button" class="toggle-btn" id="readableModeBtn" title="Okunak modu" aria-pressed="false">
+      <i class="fas fa-eye"></i>
+      <span class="toggle-label">Okunak modu</span>
+    </button>
+  </div>
+</header>
+
+<main id="home" class="active">
+  <aside id="kategoriList"></aside>
+  <section style="flex:1">
+    <div class="list" id="firmaList"></div>
+  </section>
+</main>
+
+<main id="add">
+  <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSfJ3HwbTMT1vUqkG1vAQsA8sBTFPx7MzqHLjKQAZnnAvw3C7g/viewform?embedded=true" height="1800"></iframe>
+</main>
+
+<main id="contact">
+  <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSfPH43mD54uEylLQcvElmgZ-QgZiq9QC5KfKUyqj9yqJVLhsQ/viewform?embedded=true" height="700"></iframe>
+</main>
+
+<button id="scrollToTop">
+  <i class="fas fa-arrow-up"></i>
+</button>
+
+<script>
+const CSV_URL =
+"https://docs.google.com/spreadsheets/d/e/2PACX-1vR0_uoscZglFTi3l3RMoVyLq3P8pajjDg7WXPVdRHiJ25hqLE4g2HvXDWqhxKnfVpnjEJ2evncgvgU2/pub?gid=1659204540&single=true&output=csv";
+
+let allData = [];
+let activeCategory = "";
+let darkMode = localStorage.getItem("darkMode") === "1";
+let readableMode = localStorage.getItem("readableMode") === "1";
+
+function formatPhoneReadable(tel) {
+  if (!tel) return "";
+  const digits = String(tel).replace(/\D/g, "");
+  if (digits.length === 11 && digits[0] === "0") {
+    return digits.slice(0, 4) + " " + digits.slice(4, 7) + " " + digits.slice(7, 9) + " " + digits.slice(9, 11);
+  }
+  if (digits.length === 10) {
+    return digits.slice(0, 3) + " " + digits.slice(3, 6) + " " + digits.slice(6, 8) + " " + digits.slice(8, 10);
+  }
+  return tel;
+}
+
+function applyDarkMode() {
+  if (darkMode) {
+    document.body.classList.add("dark-mode");
+    darkModeBtn.classList.add("active");
+    darkModeBtn.querySelector("i").className = "fas fa-sun";
+    darkModeBtn.setAttribute("aria-pressed", "true");
+  } else {
+    document.body.classList.remove("dark-mode");
+    darkModeBtn.classList.remove("active");
+    darkModeBtn.querySelector("i").className = "fas fa-moon";
+    darkModeBtn.setAttribute("aria-pressed", "false");
+  }
+}
+
+function applyReadableMode() {
+  if (readableMode) {
+    readableModeBtn.classList.add("active");
+    readableModeBtn.setAttribute("aria-pressed", "true");
+  } else {
+    readableModeBtn.classList.remove("active");
+    readableModeBtn.setAttribute("aria-pressed", "false");
+  }
+  renderList();
+}
+
+Papa.parse(CSV_URL, {
+  download: true,
+  header: true,
+  skipEmptyLines: true,
+  complete: res => {
+    // Dinamik olarak etiketler sütununu bul
+    const fields = res.meta.fields || [];
+    const etiketField = fields.find(f => f && f.toLowerCase().includes("etiket"));
+    
+    allData = res.data.map(r => {
+      const etiketRaw = (r[etiketField] || "").toLowerCase();
+      return {
+        firma: r["Firma Adınız"] || "",
+        firmaSearch: (r["Firma Adınız"] || "").toLowerCase(),
+        kategori: (r["Kategori"] || "").trim(),
+        adres: r["Adres"] || "",
+        telefon: r["Telefon Numaranız"] || "",
+        etiketRaw: etiketRaw,
+        etiketler: etiketRaw.split(",").map(e => e.trim()).filter(e => e)
+      };
+    }).filter(d => d.firma);
+    
+    renderCategories();
+    renderList();
+  }
+});
+
+const darkModeBtn = document.getElementById("darkModeBtn");
+const readableModeBtn = document.getElementById("readableModeBtn");
+
+applyDarkMode();
+applyReadableMode();
+
+darkModeBtn.addEventListener("click", function() {
+  darkMode = !darkMode;
+  localStorage.setItem("darkMode", darkMode ? "1" : "0");
+  applyDarkMode();
+});
+
+readableModeBtn.addEventListener("click", function() {
+  readableMode = !readableMode;
+  localStorage.setItem("readableMode", readableMode ? "1" : "0");
+  applyReadableMode();
+});
+
+function renderCategories() {
+  const categoryFilter = document.getElementById("categoryFilter");
+  const uniqueCategories = [...new Set(allData.map(d => d.kategori))].filter(c => c);
+  
+  // Mevcut seçimi sakla
+  const currentValue = categoryFilter.value;
+  
+  // Dropdown'u temizle ve Tümü seçeneğini ekle
+  categoryFilter.innerHTML = '<option value="">Tümü</option>';
+  
+  // Kategorileri ekle
+  uniqueCategories.forEach(c => {
+    const option = document.createElement("option");
+    option.value = c;
+    option.textContent = c;
+    categoryFilter.appendChild(option);
+  });
+  
+  // Önceki seçimi geri yükle
+  categoryFilter.value = currentValue;
+}
+
+function renderList() {
+  const f = searchFirma.value.toLowerCase().trim();
+  const e = searchEtiket.value.toLowerCase().trim();
+  const etiketAramaTerimleri = e ? e.split(",").map(t => t.trim()).filter(t => t) : [];
+  
+  const filteredData = allData.filter(d => {
+    const kategoriMatch = !activeCategory || d.kategori === activeCategory;
+    const firmaMatch = d.firmaSearch.includes(f);
+    
+    let etiketMatch = true;
+    if (etiketAramaTerimleri.length > 0) {
+      etiketMatch = etiketAramaTerimleri.some(terim => 
+        d.etiketler.some(etiket => etiket.includes(terim))
+      );
+    }
+    
+    return kategoriMatch && firmaMatch && etiketMatch;
+  });
+
+  firmaList.innerHTML = "";
+  
+  if (filteredData.length === 0) {
+    firmaList.innerHTML = '<div class="no-results">Sonuç bulunamadı</div>';
+    return;
+  }
+
+  filteredData.forEach(d => {
+    const telefonFormatli = d.telefon.replace(/^0/, "+90").replace(/\s+/g, "");
+    const telefonGosterim = readableMode ? formatPhoneReadable(d.telefon) : d.telefon;
+    firmaList.innerHTML += `
+      <div class="card">
+        <h3>${d.firma}</h3>
+        <div class="card-address">
+          <i class="fas fa-map-marker-alt"></i>
+          <span>${d.adres || "Adres bilgisi yok"}</span>
+        </div>
+        <div class="card-footer">
+          ${d.telefon ? `<div class="card-phone">
+            <a href="tel:${telefonFormatli}" title="Telefonla ara">
+              <i class="fas fa-phone"></i> ${telefonGosterim}
+            </a>
+          </div>` : ""}
+          <div class="card-category" onclick="filterByCategory('${d.kategori}')" style="cursor: pointer;" title="Kategori seçmek için tıklayın">${d.kategori || "Kategori yok"}</div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+searchFirma.oninput = renderList;
+searchEtiket.oninput = renderList;
+document.getElementById("categoryFilter").onchange = (e) => {
+  activeCategory = e.target.value;
+  renderList();
+};
+
+function showPage(id) {
+  document.querySelectorAll("main").forEach(m => m.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  document.querySelectorAll("nav a").forEach(a => a.classList.remove("active"));
+  event.target.closest("a").classList.add("active");
+  
+  // Ana Sayfa'ya tıklandığında filtreleri sıfırla
+  if (id === 'home') {
+    document.getElementById("searchFirma").value = "";
+    document.getElementById("searchEtiket").value = "";
+    document.getElementById("categoryFilter").value = "";
+    activeCategory = "";
+    renderList();
+  }
+}
+
+// Scroll to top functionality
+const scrollToTopBtn = document.getElementById("scrollToTop");
+
+window.addEventListener("scroll", () => {
+  if (window.pageYOffset > 300) {
+    scrollToTopBtn.classList.add("show");
+  } else {
+    scrollToTopBtn.classList.remove("show");
+  }
+});
+
+scrollToTopBtn.addEventListener("click", () => {
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+});
+
+// Filter by category from card click
+function filterByCategory(kategori) {
+  const categoryFilter = document.getElementById("categoryFilter");
+  categoryFilter.value = kategori;
+  activeCategory = kategori;
+  renderList();
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+</script>
+
+</body>
+</html>
