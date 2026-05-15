@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Giden Fatura İrsaliye No Çıkartıcı{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Giden Fatura İrsaliye No Çıkartıcı</h1>
+    <p>Giden e-fatura XML dosyalarından irsaliye numaralarını çıkararak Excel'e aktarır. Birden fazla dosya seçebilirsiniz.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>XML Dosyaları</label>
+            <input type="file" name="xml_file" accept=".xml" multiple required>
+
+            <button type="submit" class="primary-btn">İrsaliye Numaralarını Çıkart</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

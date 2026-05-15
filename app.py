@@ -10,6 +10,8 @@ from tools.pdfcikar import remove_pdf_pages
 from tools.kdviadesi_kontrol import process_kdviadesi_pdf
 from tools.kdvermedi_sifir import process_vermedi_sifir_pdf
 from tools.xml_to_excel import xml_to_excel
+from tools.irsaliye_no import irsaliye_no_to_excel
+from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -275,6 +277,57 @@ def xml_efatura():
             flash(f"Hata: {e}", "error")
 
     return render_template("xml_to_excel.html")
+
+
+@app.route("/xml/irsaliye-excel", methods=["GET", "POST"])
+def xml_irsaliye_excel():
+    if request.method == "POST":
+        files = [f for f in request.files.getlist("xml_file") if f and f.filename]
+        if not files:
+            flash("Lütfen en az bir XML dosyası seçin.", "error")
+            return render_template("irsaliye_xml_to_excel.html")
+
+        saved_paths = []
+        for f in files:
+            safe_name = secure_tr_filename(f.filename)
+            path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+            f.save(path)
+            saved_paths.append(path)
+
+        try:
+            output_path, errors = irsaliye_xml_to_excel(saved_paths, OUTPUT_DIR)
+            if errors:
+                for err in errors:
+                    flash(f"Uyarı: {err}", "warning")
+            return send_file(output_path, as_attachment=True)
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("irsaliye_xml_to_excel.html")
+
+
+@app.route("/xml/irsaliye-no", methods=["GET", "POST"])
+def xml_irsaliye_no():
+    if request.method == "POST":
+        files = [f for f in request.files.getlist("xml_file") if f and f.filename]
+        if not files:
+            flash("Lütfen en az bir XML dosyası seçin.", "error")
+            return render_template("irsaliye_no.html")
+
+        saved_paths = []
+        for f in files:
+            safe_name = secure_tr_filename(f.filename)
+            path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+            f.save(path)
+            saved_paths.append(path)
+
+        try:
+            output_path = irsaliye_no_to_excel(saved_paths, OUTPUT_DIR)
+            return send_file(output_path, as_attachment=True)
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("irsaliye_no.html")
 
 
 if __name__ == "__main__":

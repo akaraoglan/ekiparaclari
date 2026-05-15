@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}İrsaliye XML → Excel{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>İrsaliye XML → Excel</h1>
+    <p>İrsaliye XML dosyalarını Excel formatına dönüştürür. Müşteri adı, tarih, irsaliye no, ürün, miktar ve birim bilgilerini çıkarır. Birden fazla dosya seçebilirsiniz.</p>
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>İrsaliye XML Dosyaları</label>
+            <input type="file" name="xml_file" accept=".xml" multiple required>
+
+            <button type="submit" class="primary-btn">Dönüştür</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -62,6 +62,22 @@ TOOLS = [
         "description": "Gelen e-fatura XML dosyalarını Excel formatına dönüştürür. Birden fazla dosya seçilebilir.",
         "keywords": ["xml", "excel", "efatura", "fatura", "dönüştür", "xlsx"],
         "url": "/xml/efatura"
+    },
+    {
+        "id": "irsaliye_xml_to_excel",
+        "name": "İrsaliye XML → Excel",
+        "category": "E-Fatura Araçları",
+        "description": "İrsaliye XML dosyalarını Excel'e dönüştürür. Müşteri adı, tarih, irsaliye no, ürün, miktar ve birim bilgilerini çıkarır.",
+        "keywords": ["xml", "irsaliye", "excel", "ürün", "miktar", "müşteri", "dönüştür"],
+        "url": "/xml/irsaliye-excel"
+    },
+    {
+        "id": "irsaliye_no",
+        "name": "Giden Fatura İrsaliye No Çıkartıcı",
+        "category": "E-Fatura Araçları",
+        "description": "Giden e-fatura XML dosyalarından irsaliye numaralarını çıkararak Excel'e aktarır. Birden fazla dosya seçilebilir.",
+        "keywords": ["xml", "irsaliye", "giden", "fatura", "efatura", "numara", "çıkart", "waybill"],
+        "url": "/xml/irsaliye-no"
     }
 ]
 
