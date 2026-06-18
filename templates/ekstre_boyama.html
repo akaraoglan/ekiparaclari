@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Ekstre Boyama ve Gönderme İşlemi{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Ekstre Boyama ve Gönderme İşlemi</h1>
+    <p>VakıfBank ekstresindeki gümrük satırlarını boyar, kaydeder ve Outlook taslak maili hazırlar.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>VakıfBank Ekstre PDF Dosyası</label>
+            <input type="file" name="pdf_file" accept=".pdf" required>
+
+            <p class="help-text">
+                <strong>Renk Kuralları:</strong><br>
+                &nbsp;&nbsp;• Beyanname adında <strong>IM</strong> geçiyorsa → <span style="background:#ffff00;padding:1px 6px;border-radius:3px;">Sarı</span> (İthalat)<br>
+                &nbsp;&nbsp;• Beyanname adında <strong>EX</strong> geçiyorsa → <span style="background:#87cefa;padding:1px 6px;border-radius:3px;">Mavi</span> (İhracat)<br>
+                <br>
+                <strong>Kayıt Konumu:</strong><br>
+                &nbsp;&nbsp;C:\Users\AKARAOGLAN\OneDrive - Starwood ...\IBABA-AKARAOGLAN GÜMRÜK EKSTRELER\2026<br>
+                <br>
+                <strong>Taslak Mail Alıcıları:</strong><br>
+                &nbsp;&nbsp;• <strong>Kime:</strong> sumeray.koyas@starwood.com.tr<br>
+                &nbsp;&nbsp;• <strong>CC:</strong> malike.uner@starwood.com.tr, mehmet.gul@starwood.com.tr<br>
+                &nbsp;&nbsp;• <strong>Konu:</strong> BELGE TALEBİ<br>
+                <br>
+                <em>Outlook açıldıktan sonra gönder tuşuna kendiniz basınız.</em>
+            </p>
+
+            <button type="submit" class="primary-btn">Boya, Kaydet ve Taslak Aç</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

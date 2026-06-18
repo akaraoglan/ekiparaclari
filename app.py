@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, send_file, flash
 import os
+import shutil
 import uuid
 from tool_registry import TOOLS, get_categories
 from tools.pdfayir import split_pdf_by_range, split_pdf_to_single_pages
@@ -12,6 +13,7 @@ from tools.kdvermedi_sifir import process_vermedi_sifir_pdf
 from tools.xml_to_excel import xml_to_excel
 from tools.irsaliye_no import irsaliye_no_to_excel
 from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
+from tools.ekstre_boyama import paint_vakifbank_pdf, prepare_outlook_email
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -337,6 +339,55 @@ def xml_irsaliye_no():
             flash(f"Hata: {e}", "error")
 
     return render_template("irsaliye_no.html")
+
+
+@app.route("/starwood/ekstre-boyama", methods=["GET", "POST"])
+def ekstre_boyama():
+    if request.method == "POST":
+        file = request.files.get("pdf_file")
+        if not file or not file.filename:
+            flash("Lütfen bir PDF dosyası seçin.", "error")
+            return render_template("ekstre_boyama.html")
+
+        original_filename = file.filename
+        safe_name = secure_tr_filename(original_filename)
+        input_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+        file.save(input_path)
+
+        try:
+            result = paint_vakifbank_pdf(input_path, original_filename)
+            out_path = os.path.join(OUTPUT_DIR, result["out_filename"])
+            shutil.copy2(result["tmp_path"], out_path)
+            try:
+                os.unlink(result["tmp_path"])
+            except OSError:
+                pass
+
+            email_err = prepare_outlook_email(out_path)
+            if email_err:
+                flash(f"Outlook taslak açılamadı: {email_err}", "warning")
+            else:
+                flash("Outlook taslak maili hazırlandı. Gönder tuşuna kendiniz basın.", "success")
+
+            if result["saved_path"]:
+                flash(f"Dosya kaydedildi: {result['saved_path']}", "success")
+            else:
+                flash(
+                    "OneDrive klasörü bu makinede bulunamadı; dosya yalnızca tarayıcıdan indiriliyor.",
+                    "warning"
+                )
+
+            flash(
+                f"Tamamlandı: {result['im_count']} ithalat (sarı), "
+                f"{result['ex_count']} ihracat (mavi) satırı boyandı.",
+                "success"
+            )
+
+            return send_file(out_path, as_attachment=True, download_name=result["out_filename"])
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("ekstre_boyama.html")
 
 
 if __name__ == "__main__":

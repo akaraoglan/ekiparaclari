@@ -78,6 +78,14 @@ TOOLS = [
         "description": "Giden e-fatura XML dosyalarından irsaliye numaralarını çıkararak Excel'e aktarır. Birden fazla dosya seçilebilir.",
         "keywords": ["xml", "irsaliye", "giden", "fatura", "efatura", "numara", "çıkart", "waybill"],
         "url": "/xml/irsaliye-no"
+    },
+    {
+        "id": "ekstre_boyama",
+        "name": "Ekstre Boyama ve Gönderme İşlemi",
+        "category": "Starwood",
+        "description": "VakıfBank ekstresindeki Gümrük Vergi Tahsilatı satırlarını beyanname tipine göre renklendirir (IM=sarı, EX=mavi), OneDrive'a kaydeder ve Outlook taslak maili açar.",
+        "keywords": ["ekstre", "vakıfbank", "boya", "gümrük", "beyanname", "im", "ex", "outlook", "starwood"],
+        "url": "/starwood/ekstre-boyama"
     }
 ]
 
