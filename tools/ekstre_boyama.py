@@ -1,22 +1,9 @@
 import fitz
 import os
 import re
-import shutil
 import tempfile
 
 BEYANNAME_RE = re.compile(r'\b\d{8}(IM|EX|AN)\d+\b', re.IGNORECASE)
-
-SAVE_DIR = (
-    r"C:\Users\AKARAOGLAN"
-    r"\OneDrive - Starwood Orman Ürünleri Sanayi A.Ş"
-    r"\IBABA-AKARAOGLAN"
-    r"\IBABA-AKARAOGLAN GÜMRÜK EKSTRELER"
-    r"\2026"
-)
-
-TO_ADDR  = "sumeray.koyas@starwood.com.tr"
-CC_ADDRS = "malike.uner@starwood.com.tr; mehmet.gul@starwood.com.tr"
-SUBJECT  = "BELGE TALEBİ"
 
 YELLOW     = (1.0, 1.0, 0.0)
 LIGHT_BLUE = (0.53, 0.81, 0.98)
@@ -97,39 +84,9 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str) -> dict:
     doc.save(tmp_path)
     doc.close()
 
-    # Copy to OneDrive directory if it exists
-    saved_path = None
-    if os.path.isdir(SAVE_DIR):
-        dest = os.path.join(SAVE_DIR, out_filename)
-        shutil.copy2(tmp_path, dest)
-        saved_path = dest
-
     return {
         "tmp_path": tmp_path,
-        "saved_path": saved_path,
         "out_filename": out_filename,
         "im_count": im_count,
         "ex_count": ex_count,
     }
-
-
-def prepare_outlook_email(attachment_path: str) -> str:
-    """
-    Open an Outlook draft with the painted PDF attached.
-    Returns "" on success, error message string on failure.
-    """
-    try:
-        import win32com.client as win32  # pywin32
-        outlook = win32.Dispatch("outlook.application")
-        mail = outlook.CreateItem(0)
-        mail.To      = TO_ADDR
-        mail.CC      = CC_ADDRS
-        mail.Subject = SUBJECT
-        mail.Body    = ""
-        mail.Attachments.Add(Source=os.path.abspath(attachment_path))
-        mail.Display(False)
-        return ""
-    except ImportError:
-        return "pywin32 kurulu değil (pip install pywin32)"
-    except Exception as exc:
-        return str(exc)

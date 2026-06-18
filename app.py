@@ -13,7 +13,7 @@ from tools.kdvermedi_sifir import process_vermedi_sifir_pdf
 from tools.xml_to_excel import xml_to_excel
 from tools.irsaliye_no import irsaliye_no_to_excel
 from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
-from tools.ekstre_boyama import paint_vakifbank_pdf, prepare_outlook_email
+from tools.ekstre_boyama import paint_vakifbank_pdf
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -356,26 +356,6 @@ def ekstre_boyama():
 
         try:
             result = paint_vakifbank_pdf(input_path, original_filename)
-            out_path = os.path.join(OUTPUT_DIR, result["out_filename"])
-            shutil.copy2(result["tmp_path"], out_path)
-            try:
-                os.unlink(result["tmp_path"])
-            except OSError:
-                pass
-
-            email_err = prepare_outlook_email(out_path)
-            if email_err:
-                flash(f"Outlook taslak açılamadı: {email_err}", "warning")
-            else:
-                flash("Outlook taslak maili hazırlandı. Gönder tuşuna kendiniz basın.", "success")
-
-            if result["saved_path"]:
-                flash(f"Dosya kaydedildi: {result['saved_path']}", "success")
-            else:
-                flash(
-                    "OneDrive klasörü bu makinede bulunamadı; dosya yalnızca tarayıcıdan indiriliyor.",
-                    "warning"
-                )
 
             flash(
                 f"Tamamlandı: {result['im_count']} ithalat (sarı), "
@@ -383,7 +363,11 @@ def ekstre_boyama():
                 "success"
             )
 
-            return send_file(out_path, as_attachment=True, download_name=result["out_filename"])
+            return send_file(
+                result["tmp_path"],
+                as_attachment=True,
+                download_name=result["out_filename"]
+            )
         except Exception as e:
             flash(f"Hata: {e}", "error")
 
