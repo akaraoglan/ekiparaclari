@@ -4,6 +4,7 @@ import re
 import tempfile
 
 BEYANNAME_RE = re.compile(r'\b\d{8}(IM|EX|AN)\d+\b', re.IGNORECASE)
+DATE_RE = re.compile(r'\d{2}\.\d{2}\.\d{4}')
 
 YELLOW     = (1.0, 1.0, 0.0)
 LIGHT_BLUE = (0.53, 0.81, 0.98)
@@ -11,7 +12,15 @@ OPACITY    = 0.38
 TRANSACTION_NAME = "Gümrük Vergi Tahsilatı"
 
 
-def _out_filename(original: str) -> str:
+def _extract_transaction_date(text: str) -> str:
+    m = DATE_RE.search(text)
+    return m.group(0) if m else None
+
+
+def _out_filename(original: str, extracted_date: str = None) -> str:
+    if extracted_date:
+        return f"{extracted_date} VAKIFBANK_boyanmis.pdf"
+
     m = re.match(r'(\d{2}\.\d{2}\.\d{4})', os.path.basename(original))
     date = m.group(1) if m else ""
     return f"{date} VAKIFBANK_boyanmis.pdf" if date else "VAKIFBANK_boyanmis.pdf"
@@ -41,12 +50,11 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str) -> dict:
     Paint Gümrük Vergi Tahsilatı rows:
       - IM beyanname → yellow
       - EX beyanname → light blue
-    Saves to SAVE_DIR if available.
-    Returns dict with tmp_path, saved_path, out_filename, im_count, ex_count.
+    Returns dict with tmp_path, out_filename, extracted_date, im_count, ex_count.
     """
-    out_filename = _out_filename(original_filename)
     doc = fitz.open(input_path)
     im_count = ex_count = 0
+    extracted_date = None
 
     for page in doc:
         pw = page.rect.width
@@ -60,6 +68,9 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str) -> dict:
             # Extract description text clipped below the hit
             clip = fitz.Rect(0, hit.y1 - 2, pw, hit.y1 + 80)
             desc_text = page.get_text("text", clip=clip)
+
+            if not extracted_date:
+                extracted_date = _extract_transaction_date(desc_text)
 
             m = BEYANNAME_RE.search(desc_text)
             if not m:
@@ -84,9 +95,12 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str) -> dict:
     doc.save(tmp_path)
     doc.close()
 
+    out_filename = _out_filename(original_filename, extracted_date)
+
     return {
         "tmp_path": tmp_path,
         "out_filename": out_filename,
+        "extracted_date": extracted_date,
         "im_count": im_count,
         "ex_count": ex_count,
     }
