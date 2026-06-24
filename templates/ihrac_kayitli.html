@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}İhraç Kayıtlı Hazırlama{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>İhraç Kayıtlı Hazırlama</h1>
+    <p>Detay ve Özet Excel dosyalarından Sonuç dosyasını oluşturur.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label>Detay Dosyası</label>
+            <input type="file" name="detay_file" accept=".xlsx" required>
+
+            <label>Özet Dosyası</label>
+            <input type="file" name="ozet_file" accept=".xlsx" required>
+
+            <p class="help-text">
+                TRY dışındaki para birimlerinde I, K ve L sütunları boş bırakılır.
+            </p>
+
+            <button type="submit" class="primary-btn">Sonuç Dosyasını Hazırla</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

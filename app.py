@@ -14,6 +14,7 @@ from tools.xml_to_excel import xml_to_excel
 from tools.irsaliye_no import irsaliye_no_to_excel
 from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
 from tools.ekstre_boyama import paint_vakifbank_pdf
+from tools.ihrac_kayitli import process_ihrac_kayitli
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -372,6 +373,43 @@ def ekstre_boyama():
             flash(f"Hata: {e}", "error")
 
     return render_template("ekstre_boyama.html")
+
+
+@app.route("/starwood/ihrac-kayitli-hazirlama", methods=["GET", "POST"])
+def ihrac_kayitli_hazirlama():
+    if request.method == "POST":
+        detay_file = request.files.get("detay_file")
+        ozet_file = request.files.get("ozet_file")
+
+        if not detay_file or not detay_file.filename:
+            flash("Lütfen Detay Dosyası'nı seçin.", "error")
+            return render_template("ihrac_kayitli.html")
+        if not ozet_file or not ozet_file.filename:
+            flash("Lütfen Özet Dosyası'nı seçin.", "error")
+            return render_template("ihrac_kayitli.html")
+
+        detay_name = secure_tr_filename(detay_file.filename)
+        ozet_name = secure_tr_filename(ozet_file.filename)
+        detay_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{detay_name}")
+        ozet_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{ozet_name}")
+        detay_file.save(detay_path)
+        ozet_file.save(ozet_path)
+
+        try:
+            status, output_path, message = process_ihrac_kayitli(detay_path, ozet_path, OUTPUT_DIR)
+
+            if status == "error":
+                flash(message, "error")
+            elif status == "partial":
+                flash(f"Uyarı: {message}", "warning")
+                return send_file(output_path, as_attachment=True)
+            else:
+                flash(message, "success")
+                return send_file(output_path, as_attachment=True)
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("ihrac_kayitli.html")
 
 
 if __name__ == "__main__":

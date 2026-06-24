@@ -86,6 +86,14 @@ TOOLS = [
         "description": "VakıfBank ekstresindeki Gümrük Vergi Tahsilatı satırlarını beyanname tipine göre renklendirir (IM=sarı, EX=mavi), OneDrive'a kaydeder ve Outlook taslak maili açar.",
         "keywords": ["ekstre", "vakıfbank", "boya", "gümrük", "beyanname", "im", "ex", "outlook", "starwood"],
         "url": "/starwood/ekstre-boyama"
+    },
+    {
+        "id": "ihrac_kayitli_hazirlama",
+        "name": "İhraç Kayıtlı Hazırlama",
+        "category": "Starwood",
+        "description": "Detay ve Özet Excel dosyalarından ihraç kayıtlı satış faturası listesini hazırlar.",
+        "keywords": ["ihrac", "ihraç", "kayıtlı", "starwood", "excel", "detay", "özet", "gtip"],
+        "url": "/starwood/ihrac-kayitli-hazirlama"
     }
 ]
 
