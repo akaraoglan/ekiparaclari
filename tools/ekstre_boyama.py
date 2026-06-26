@@ -1,7 +1,7 @@
 import fitz
 import os
 import re
-import tempfile
+import uuid
 
 BEYANNAME_RE = re.compile(r'\b\d{8}(IM|EX|AN)\d+\b', re.IGNORECASE)
 DATE_RE = re.compile(r'\d{2}\.\d{2}\.\d{4}')
@@ -45,12 +45,12 @@ def _desc_bottom(page, hit_y1: float, page_w: float) -> float:
     return bottom
 
 
-def paint_vakifbank_pdf(input_path: str, original_filename: str) -> dict:
+def paint_vakifbank_pdf(input_path: str, original_filename: str, output_dir: str) -> dict:
     """
     Paint Gümrük Vergi Tahsilatı rows:
       - IM beyanname → yellow
       - EX beyanname → light blue
-    Returns dict with tmp_path, out_filename, extracted_date, im_count, ex_count.
+    Returns dict with output_path, out_filename, extracted_date, im_count, ex_count.
     """
     doc = fitz.open(input_path)
     im_count = ex_count = 0
@@ -91,14 +91,15 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str) -> dict:
 
         shape.commit(overlay=False)
 
-    tmp_path = tempfile.mktemp(suffix=".pdf")
-    doc.save(tmp_path)
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"vakifbank_boyama_{uuid.uuid4().hex[:8]}.pdf")
+    doc.save(output_path)
     doc.close()
 
     out_filename = _out_filename(original_filename, extracted_date)
 
     return {
-        "tmp_path": tmp_path,
+        "output_path": output_path,
         "out_filename": out_filename,
         "extracted_date": extracted_date,
         "im_count": im_count,

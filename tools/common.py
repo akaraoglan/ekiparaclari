@@ -62,7 +62,7 @@ def zip_files(file_paths, output_zip):
             zf.write(path, arcname=os.path.basename(path))
     return output_zip
 
-def cleanup_old_files(folder: str, max_age_hours: int = 12):
+def cleanup_old_files(folder: str, max_age_hours: int = 24):
     now = time.time()
     max_age_seconds = max_age_hours * 3600
     if not os.path.isdir(folder):

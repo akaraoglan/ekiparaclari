@@ -23,12 +23,14 @@ app.secret_key = "degistir-beni"
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+RUNTIME_FILE_MAX_AGE_HOURS = 24
 
 ensure_dirs(UPLOAD_DIR, OUTPUT_DIR)
 
 @app.before_request
 def before_request():
-    cleanup_old_files(OUTPUT_DIR, max_age_hours=12)
+    cleanup_old_files(UPLOAD_DIR, max_age_hours=RUNTIME_FILE_MAX_AGE_HOURS)
+    cleanup_old_files(OUTPUT_DIR, max_age_hours=RUNTIME_FILE_MAX_AGE_HOURS)
 
 
 @app.route("/")
@@ -356,7 +358,7 @@ def ekstre_boyama():
         file.save(input_path)
 
         try:
-            result = paint_vakifbank_pdf(input_path, original_filename)
+            result = paint_vakifbank_pdf(input_path, original_filename, OUTPUT_DIR)
 
             flash(
                 f"Tamamlandı: {result['im_count']} ithalat (sarı), "
@@ -365,7 +367,7 @@ def ekstre_boyama():
             )
 
             return send_file(
-                result["tmp_path"],
+                result["output_path"],
                 as_attachment=True,
                 download_name=result["out_filename"]
             )

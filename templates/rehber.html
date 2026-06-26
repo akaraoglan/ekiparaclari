@@ -321,6 +321,50 @@ iframe {
   grid-column: 1 / -1;
 }
 
+.loading-state {
+  grid-column: 1 / -1;
+  width: min(360px, calc(100vw - 48px));
+  margin: 42px auto;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.loading-state span {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.loading-track {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.loading-bar {
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffffff, #d9e2ff, #ffffff);
+  animation: loadingSlide 1.15s ease-in-out infinite;
+}
+
+@keyframes loadingSlide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar {
+    animation: none;
+    transform: translateX(70%);
+  }
+}
+
 #scrollToTop {
   position: fixed;
   bottom: 30px;
@@ -416,6 +460,10 @@ body.dark-mode .cat.active {
 
 body.dark-mode .no-results {
   color: #888;
+}
+
+body.dark-mode .loading-state {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 body.dark-mode .toggle-btn {
@@ -591,6 +639,8 @@ let allData = [];
 let activeCategory = "";
 let darkMode = localStorage.getItem("darkMode") === "1";
 let readableMode = localStorage.getItem("readableMode") === "1";
+let isLoading = true;
+let loadError = false;
 
 function formatPhoneReadable(tel) {
   if (!tel) return "";
@@ -651,7 +701,14 @@ Papa.parse(CSV_URL, {
       };
     }).filter(d => d.firma);
     
+    isLoading = false;
+    loadError = false;
     renderCategories();
+    renderList();
+  },
+  error: () => {
+    isLoading = false;
+    loadError = true;
     renderList();
   }
 });
@@ -697,6 +754,25 @@ function renderCategories() {
 }
 
 function renderList() {
+  firmaList.innerHTML = "";
+
+  if (isLoading) {
+    firmaList.innerHTML = `
+      <div class="loading-state" role="status" aria-live="polite">
+        <span>Rehber yükleniyor...</span>
+        <div class="loading-track" aria-hidden="true">
+          <div class="loading-bar"></div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (loadError) {
+    firmaList.innerHTML = '<div class="no-results">Rehber yüklenemedi. Lütfen tekrar deneyin.</div>';
+    return;
+  }
+
   const f = searchFirma.value.toLowerCase().trim();
   const e = searchEtiket.value.toLowerCase().trim();
   const etiketAramaTerimleri = e ? e.split(",").map(t => t.trim()).filter(t => t) : [];
@@ -715,8 +791,6 @@ function renderList() {
     return kategoriMatch && firmaMatch && etiketMatch;
   });
 
-  firmaList.innerHTML = "";
-  
   if (filteredData.length === 0) {
     firmaList.innerHTML = '<div class="no-results">Sonuç bulunamadı</div>';
     return;
