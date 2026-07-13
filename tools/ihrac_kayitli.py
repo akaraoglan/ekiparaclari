@@ -72,7 +72,7 @@ RESULT_FORMATS = {
     "E": "@",
     "F": "@",
     "G": "@",
-    "H": "@",
+    "H": "000000000000",
     "I": "#,##0.00",
     "J": "@",
     "K": "#,##0.00",
@@ -247,7 +247,7 @@ def _write_result(rows: list, output_path: str) -> None:
             item["reference"],
             item["buyer"],
             item["tax_no"],
-            None,
+            _excel_gtip_value(item["gtip"]),
             _to_float(item["miktar"]),
             "MTQ",
             _to_float(item["matrah"]),
@@ -366,3 +366,10 @@ def _to_float(value):
     if value is None:
         return None
     return float(value)
+
+
+def _excel_gtip_value(value):
+    text = _clean_text(value)
+    if text.isdigit() and len(text) <= 15:
+        return int(text)
+    return text
