@@ -108,11 +108,17 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
             for gtip, group in sorted(groups.items(), key=lambda item: item[0], reverse=True):
                 is_try = group["currencies"] and all(cur == "TRY" for cur in group["currencies"])
                 if is_try:
-                    miktar = _truncate_two(group["m3"])
+                    if group["m3"] == 0:
+                        miktar = _truncate_two(group["quantity"])
+                        miktar_kodu = "MTK"
+                    else:
+                        miktar = _truncate_two(group["m3"])
+                        miktar_kodu = "MTQ"
                     matrah = _round_two(group["tax_base"])
                     kdv = _round_two(group["tax_base"] * KDV_ORANI)
                 else:
                     miktar = None
+                    miktar_kodu = "MTQ"
                     matrah = None
                     kdv = None
                     foreign_currency_rows += 1
@@ -123,6 +129,7 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
                     "buyer": summary["buyer"],
                     "tax_no": summary["tax_no"],
                     "miktar": miktar,
+                    "miktar_kodu": miktar_kodu,
                     "matrah": matrah,
                     "kdv": kdv,
                     "gtip": gtip,
@@ -189,6 +196,7 @@ def _read_detail_groups(path: str) -> tuple:
         group = groups[reference].setdefault(gtip, {
             "tax_base": Decimal("0"),
             "m3": Decimal("0"),
+            "quantity": Decimal("0"),
             "currencies": set(),
         })
 
@@ -200,6 +208,7 @@ def _read_detail_groups(path: str) -> tuple:
         currency = _clean_text(ws.cell(row_num, cols["currency"]).value).upper()
 
         group["tax_base"] += tax_base
+        group["quantity"] += quantity
         group["m3"] += quantity * thickness * length * width / M3_BOLEN
         if currency:
             group["currencies"].add(currency)
@@ -249,7 +258,7 @@ def _write_result(rows: list, output_path: str) -> None:
             item["tax_no"],
             _clean_text(item["gtip"]),
             _to_float(item["miktar"]),
-            "MTQ",
+            item["miktar_kodu"],
             _to_float(item["matrah"]),
             _to_float(item["kdv"]),
             None,
