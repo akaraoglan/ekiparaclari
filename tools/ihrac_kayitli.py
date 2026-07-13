@@ -106,19 +106,18 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
 
             used_refs.add(reference)
             for gtip, group in sorted(groups.items(), key=lambda item: item[0], reverse=True):
+                if group["m3"] == 0:
+                    miktar = _truncate_two(group["quantity"])
+                    miktar_kodu = "MTK"
+                else:
+                    miktar = _truncate_two(group["m3"])
+                    miktar_kodu = "MTQ"
+
                 is_try = group["currencies"] and all(cur == "TRY" for cur in group["currencies"])
                 if is_try:
-                    if group["m3"] == 0:
-                        miktar = _truncate_two(group["quantity"])
-                        miktar_kodu = "MTK"
-                    else:
-                        miktar = _truncate_two(group["m3"])
-                        miktar_kodu = "MTQ"
                     matrah = _round_two(group["tax_base"])
                     kdv = _round_two(group["tax_base"] * KDV_ORANI)
                 else:
-                    miktar = None
-                    miktar_kodu = "MTQ"
                     matrah = None
                     kdv = None
                     foreign_currency_rows += 1
@@ -150,7 +149,7 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
             warnings.append(f"Detay'da olup Özet'te bulunmayan referans: {', '.join(extra_refs)}")
         message = f"Tamamlandı. {len(output_rows)} satır oluşturuldu."
         if foreign_currency_rows:
-            message = f"{message} {foreign_currency_rows} dövizli satırda I, K ve L boş bırakıldı."
+            message = f"{message} {foreign_currency_rows} dövizli satırda K ve L boş bırakıldı."
         if warnings:
             return "partial", output_path, f"{message} {' | '.join(warnings)}"
         return "success", output_path, message
