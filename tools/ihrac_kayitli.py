@@ -2,7 +2,7 @@ import os
 import re
 import uuid
 from collections import defaultdict
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, Side
@@ -69,10 +69,10 @@ RESULT_FORMATS = {
     "B": "0",
     "C": "mm-dd-yy",
     "D": "@",
-    "E": "@",
+    "E": "0",
     "F": "@",
     "G": "@",
-    "H": "000000000000",
+    "H": "0",
     "I": "#,##0.00",
     "J": "@",
     "K": "#,##0.00",
@@ -108,7 +108,7 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
             for gtip, group in sorted(groups.items(), key=lambda item: item[0], reverse=True):
                 is_try = group["currencies"] and all(cur == "TRY" for cur in group["currencies"])
                 if is_try:
-                    miktar = _round_two(group["m3"])
+                    miktar = _truncate_two(group["m3"])
                     matrah = _round_two(group["tax_base"])
                     kdv = _round_two(group["tax_base"] * KDV_ORANI)
                 else:
@@ -247,7 +247,7 @@ def _write_result(rows: list, output_path: str) -> None:
             item["reference"],
             item["buyer"],
             item["tax_no"],
-            _excel_gtip_value(item["gtip"]),
+            _clean_text(item["gtip"]),
             _to_float(item["miktar"]),
             "MTQ",
             _to_float(item["matrah"]),
@@ -263,6 +263,8 @@ def _write_result(rows: list, output_path: str) -> None:
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = border
             cell.number_format = RESULT_FORMATS.get(cell.column_letter, "General")
+            if cell.column_letter == "H" and value:
+                cell.quotePrefix = True
 
     total_row = len(rows) + 5
     ws.cell(total_row, 11, "TOPLAM")
@@ -362,14 +364,11 @@ def _round_two(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _truncate_two(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+
 def _to_float(value):
     if value is None:
         return None
     return float(value)
-
-
-def _excel_gtip_value(value):
-    text = _clean_text(value)
-    if text.isdigit() and len(text) <= 15:
-        return int(text)
-    return text
