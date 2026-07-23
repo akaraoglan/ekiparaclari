@@ -9,7 +9,10 @@
 <body class="theme-dark">
     <header class="topbar">
         <a href="{{ url_for('index') }}" class="brand">Ekip Araçları</a>
-        <button id="themeToggle" class="theme-btn" type="button">Tema Değiştir</button>
+        <div class="topbar-actions">
+            <a href="https://docs.google.com/document/d/16MLlIuHA1GkUJZV8I31c0klPo-oLboDB/edit?usp=sharing&ouid=102888922354271613534&rtpof=true&sd=true" target="_blank" rel="noopener noreferrer" class="theme-btn">Notlar</a>
+            <button id="themeToggle" class="theme-btn" type="button">Tema Değiştir</button>
+        </div>
     </header>
     <main class="page-wrap">
         {% with messages = get_flashed_messages(with_categories=true) %}

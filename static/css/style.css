@@ -49,6 +49,12 @@ body {
     z-index: 10;
 }
 
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .brand {
     color: var(--text);
     text-decoration: none;
@@ -64,6 +70,11 @@ body {
     border-radius: 12px;
     cursor: pointer;
     font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
 }
 
 .theme-btn:hover, .search-button:hover, .primary-btn:hover { background: var(--accent-2); }
