@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}İthalde İndirilecek KDV Listesi{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>İthalde İndirilecek KDV Listesi</h1>
+    <p>Muavin ve İthalat Raporu Excel dosyalarından aylık sonuç listesini oluşturur.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="muavin_file">Muavin Dosyası</label>
+            <input id="muavin_file" type="file" name="muavin_file" accept=".xlsx,.xlsm" required>
+
+            <label for="ithalat_raporu_file">İthalat Raporu</label>
+            <input id="ithalat_raporu_file" type="file" name="ithalat_raporu_file" accept=".xlsx,.xlsm" required>
+
+            <p class="help-text">
+                Muavin ana dosyadır. Aynı beyanname ve faturadaki miktarlar birleştirilir.
+                Aynı beyannamedeki farklı faturaların KDV tutarı miktar oranında dağıtılır;
+                KDV matrahı %20 üzerinden hesaplanır. Muavinde olup İthalat Raporu'nda bulunmayan
+                veya miktar birimleri farklı olan kayıtlar “İnceleme Gerekenler” sayfasına alınır.
+            </p>
+
+            <button type="submit" class="primary-btn">Sonuç Dosyasını Hazırla</button>
+        </form>
+    </div>
+
+    <div class="info-box">
+        <h3>Oluşturulan Excel sayfaları</h3>
+        <ul>
+            <li><strong>Sonuç:</strong> İthalde İndirilecek KDV listesi.</li>
+            <li><strong>İnceleme Gerekenler:</strong> Elle tamamlanacak veya düzeltilecek kayıtlar.</li>
+            <li><strong>Kontrol Özeti:</strong> Tahakkuk, ödeme ve sonuç toplamlarının karşılaştırması.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

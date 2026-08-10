@@ -15,6 +15,7 @@ from tools.irsaliye_no import irsaliye_no_to_excel
 from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
 from tools.ekstre_boyama import paint_vakifbank_pdf
 from tools.ihrac_kayitli import process_ihrac_kayitli
+from tools.ithalde_indirilecek_kdv import process_ithalde_indirilecek_kdv
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -412,6 +413,46 @@ def ihrac_kayitli_hazirlama():
             flash(f"Hata: {e}", "error")
 
     return render_template("ihrac_kayitli.html")
+
+
+@app.route("/starwood/ithalde-indirilecek-kdv", methods=["GET", "POST"])
+def ithalde_indirilecek_kdv():
+    if request.method == "POST":
+        muavin_file = request.files.get("muavin_file")
+        ithalat_raporu_file = request.files.get("ithalat_raporu_file")
+
+        if not muavin_file or not muavin_file.filename:
+            flash("Lütfen Muavin dosyasını seçin.", "error")
+            return render_template("ithalde_indirilecek_kdv.html")
+        if not ithalat_raporu_file or not ithalat_raporu_file.filename:
+            flash("Lütfen İthalat Raporu dosyasını seçin.", "error")
+            return render_template("ithalde_indirilecek_kdv.html")
+
+        muavin_name = secure_tr_filename(muavin_file.filename)
+        rapor_name = secure_tr_filename(ithalat_raporu_file.filename)
+        muavin_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{muavin_name}")
+        rapor_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{rapor_name}")
+        muavin_file.save(muavin_path)
+        ithalat_raporu_file.save(rapor_path)
+
+        try:
+            status, output_path, message = process_ithalde_indirilecek_kdv(
+                muavin_path,
+                rapor_path,
+                OUTPUT_DIR,
+            )
+            if status == "error":
+                flash(message, "error")
+            elif status == "partial":
+                flash(f"Uyarı: {message}", "warning")
+                return send_file(output_path, as_attachment=True)
+            else:
+                flash(message, "success")
+                return send_file(output_path, as_attachment=True)
+        except Exception as e:
+            flash(f"Hata: {e}", "error")
+
+    return render_template("ithalde_indirilecek_kdv.html")
 
 
 if __name__ == "__main__":

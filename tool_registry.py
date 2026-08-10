@@ -94,6 +94,14 @@ TOOLS = [
         "description": "Detay ve Özet Excel dosyalarından ihraç kayıtlı satış faturası listesini hazırlar.",
         "keywords": ["ihrac", "ihraç", "kayıtlı", "starwood", "excel", "detay", "özet", "gtip"],
         "url": "/starwood/ihrac-kayitli-hazirlama"
+    },
+    {
+        "id": "ithalde_indirilecek_kdv",
+        "name": "İthalde İndirilecek KDV Listesi",
+        "category": "Starwood",
+        "description": "Muavin ve İthalat Raporu dosyalarından İthalde İndirilecek KDV listesini hazırlar; eşleşmeyen ve farklı birimli kayıtları incelemeye ayırır.",
+        "keywords": ["ithalat", "ithalde", "indirilecek", "kdv", "muavin", "beyanname", "ggb", "starwood", "excel"],
+        "url": "/starwood/ithalde-indirilecek-kdv"
     }
 ]
 
