@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}ithaldeindirilecekfinal{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>ithaldeindirilecekfinal</h1>
+    <p>İthalde İndirilecek KDV Excel dosyasına hesaplama ve fark kontrolü ekler.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="excel_file">Excel Dosyası</label>
+            <input id="excel_file" type="file" name="excel_file" accept=".xlsx" required>
+
+            <p class="help-text">
+                “Sonuç” sayfasındaki veri satırlarında M sütununa KDV Matrahı × %20,
+                N sütununa KDV Tutarı − hesaplanan KDV formülü yazılır. Fark 0,00 değilse
+                KDV matrahı, KDV tutarına göre düzeltilir. I ve J sütunları hesaplanmış
+                değerler olarak sabitlenir; diğer sayfalar korunur.
+            </p>
+
+            <button type="submit" class="primary-btn">Final Dosyasını Hazırla</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

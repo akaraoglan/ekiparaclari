@@ -16,6 +16,7 @@ from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
 from tools.ekstre_boyama import paint_vakifbank_pdf
 from tools.ihrac_kayitli import process_ihrac_kayitli
 from tools.ithalde_indirilecek_kdv import process_ithalde_indirilecek_kdv
+from tools.ithaldeindirilecekfinal import process_ithaldeindirilecekfinal
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -453,6 +454,42 @@ def ithalde_indirilecek_kdv():
             flash(f"Hata: {e}", "error")
 
     return render_template("ithalde_indirilecek_kdv.html")
+
+
+@app.route("/starwood/ithaldeindirilecekfinal", methods=["GET", "POST"])
+def ithaldeindirilecekfinal():
+    if request.method == "POST":
+        excel_file = request.files.get("excel_file")
+
+        if not excel_file or not excel_file.filename:
+            flash("Lütfen bir Excel dosyası seçin.", "error")
+            return render_template("ithaldeindirilecekfinal.html")
+        if not excel_file.filename.lower().endswith(".xlsx"):
+            flash("Lütfen .xlsx uzantılı bir Excel dosyası yükleyin.", "error")
+            return render_template("ithaldeindirilecekfinal.html")
+
+        safe_name = secure_tr_filename(excel_file.filename)
+        input_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+        excel_file.save(input_path)
+
+        try:
+            status, output_path, message = process_ithaldeindirilecekfinal(
+                input_path,
+                OUTPUT_DIR,
+            )
+            if status == "error":
+                flash(message, "error")
+            else:
+                flash(message, "success")
+                return send_file(
+                    output_path,
+                    as_attachment=True,
+                    download_name=os.path.basename(output_path),
+                )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("ithaldeindirilecekfinal.html")
 
 
 if __name__ == "__main__":

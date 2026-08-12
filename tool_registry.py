@@ -102,6 +102,14 @@ TOOLS = [
         "description": "Muavin ve İthalat Raporu dosyalarından İthalde İndirilecek KDV listesini hazırlar; eşleşmeyen ve farklı birimli kayıtları incelemeye ayırır.",
         "keywords": ["ithalat", "ithalde", "indirilecek", "kdv", "muavin", "beyanname", "ggb", "starwood", "excel"],
         "url": "/starwood/ithalde-indirilecek-kdv"
+    },
+    {
+        "id": "ithaldeindirilecekfinal",
+        "name": "ithaldeindirilecekfinal",
+        "category": "Starwood",
+        "description": "İthalde İndirilecek KDV Excel dosyasına %20 KDV ve fark kontrolü ekler; gerektiğinde matrahı düzeltir ve I/J sütunlarını değer olarak sabitler.",
+        "keywords": ["ithaldeindirilecekfinal", "ithalde", "indirilecek", "kdv", "matrah", "fark", "starwood", "excel"],
+        "url": "/starwood/ithaldeindirilecekfinal"
     }
 ]
 
