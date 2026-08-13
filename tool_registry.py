@@ -96,6 +96,14 @@ TOOLS = [
         "url": "/starwood/ihrac-kayitli-hazirlama"
     },
     {
+        "id": "ihrac_kayitli_final",
+        "name": "İhraç Kayıtlı Final",
+        "category": "Starwood",
+        "description": "İhraç kayıtlı satış faturası listesindeki matrahları düzeltir; tüm KDV farklarını 0,00 yapar ve matrah toplamını KDV toplamıyla eşitler.",
+        "keywords": ["ihrac", "ihraç", "kayıtlı", "final", "kdv", "matrah", "fark", "starwood", "excel"],
+        "url": "/starwood/ihrac-kayitli-final"
+    },
+    {
         "id": "ithalde_indirilecek_kdv",
         "name": "İthalde İndirilecek KDV Listesi",
         "category": "Starwood",

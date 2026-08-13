@@ -15,6 +15,7 @@ from tools.irsaliye_no import irsaliye_no_to_excel
 from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
 from tools.ekstre_boyama import paint_vakifbank_pdf
 from tools.ihrac_kayitli import process_ihrac_kayitli
+from tools.ihrac_kayitli_final import process_ihrac_kayitli_final
 from tools.ithalde_indirilecek_kdv import process_ithalde_indirilecek_kdv
 from tools.ithaldeindirilecekfinal import process_ithaldeindirilecekfinal
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
@@ -414,6 +415,42 @@ def ihrac_kayitli_hazirlama():
             flash(f"Hata: {e}", "error")
 
     return render_template("ihrac_kayitli.html")
+
+
+@app.route("/starwood/ihrac-kayitli-final", methods=["GET", "POST"])
+def ihrac_kayitli_final():
+    if request.method == "POST":
+        excel_file = request.files.get("excel_file")
+
+        if not excel_file or not excel_file.filename:
+            flash("Lütfen bir Excel dosyası seçin.", "error")
+            return render_template("ihrac_kayitli_final.html")
+        if not excel_file.filename.lower().endswith(".xlsx"):
+            flash("Lütfen .xlsx uzantılı bir Excel dosyası yükleyin.", "error")
+            return render_template("ihrac_kayitli_final.html")
+
+        safe_name = secure_tr_filename(excel_file.filename)
+        input_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+        excel_file.save(input_path)
+
+        try:
+            status, output_path, message = process_ihrac_kayitli_final(
+                input_path,
+                OUTPUT_DIR,
+            )
+            if status == "error":
+                flash(message, "error")
+            else:
+                flash(message, "success")
+                return send_file(
+                    output_path,
+                    as_attachment=True,
+                    download_name=os.path.basename(output_path),
+                )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("ihrac_kayitli_final.html")
 
 
 @app.route("/starwood/ithalde-indirilecek-kdv", methods=["GET", "POST"])

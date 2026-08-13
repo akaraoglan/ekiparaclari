@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}İhraç Kayıtlı Final{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>İhraç Kayıtlı Final</h1>
+    <p>İhraç kayıtlı satış faturası listesindeki KDV ve matrah farklarını kesinleştirir.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="excel_file">Excel Dosyası</label>
+            <input id="excel_file" type="file" name="excel_file" accept=".xlsx" required>
+
+            <p class="help-text">
+                K sütunundaki matrahlar kuruş seviyesinde düzeltilir. P sütununa Matrah × %20,
+                Q sütununa KDV − hesaplanan KDV sonucu değer olarak yazılır. İşlem sonunda tüm Q farkları
+                0,00 olur ve matrah toplamı, L sütunundaki KDV toplamının %20'ye bölünmüş
+                değerine eşitlenir.
+            </p>
+
+            <button type="submit" class="primary-btn">Final Dosyasını Hazırla</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
