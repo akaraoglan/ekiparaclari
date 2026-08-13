@@ -18,6 +18,8 @@ from tools.ihrac_kayitli import process_ihrac_kayitli
 from tools.ihrac_kayitli_final import process_ihrac_kayitli_final
 from tools.ithalde_indirilecek_kdv import process_ithalde_indirilecek_kdv
 from tools.ithaldeindirilecekfinal import process_ithaldeindirilecekfinal
+from tools.word_fatura_no import word_invoices_to_excel
+from tools.word_yevmiye_doldur import process_word_journal_pairs
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -378,6 +380,126 @@ def ekstre_boyama():
             flash(f"Hata: {e}", "error")
 
     return render_template("ekstre_boyama.html")
+
+
+@app.route("/starwood/word-fatura-nolari", methods=["GET", "POST"])
+def word_fatura_nolari():
+    if request.method == "POST":
+        files = [f for f in request.files.getlist("word_files") if f and f.filename]
+        if not files:
+            flash("Lütfen en az bir Word dosyası seçin.", "error")
+            return render_template("word_fatura_no.html")
+
+        invalid_files = [f.filename for f in files if not f.filename.lower().endswith(".docx")]
+        if invalid_files:
+            flash(
+                f"Yalnızca .docx uzantılı Word dosyaları yüklenebilir: {', '.join(invalid_files)}",
+                "error",
+            )
+            return render_template("word_fatura_no.html")
+
+        saved_documents = []
+        for file in files:
+            original_filename = file.filename
+            safe_name = secure_tr_filename(original_filename)
+            input_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{safe_name}")
+            file.save(input_path)
+            saved_documents.append((input_path, original_filename))
+
+        try:
+            status, output_path, message = word_invoices_to_excel(
+                saved_documents,
+                OUTPUT_DIR,
+            )
+            flash(message, "warning" if status == "partial" else "success")
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=os.path.basename(output_path),
+            )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("word_fatura_no.html")
+
+
+def _upload_stem(filename):
+    normalized = filename.replace("\\", "/")
+    return os.path.splitext(os.path.basename(normalized))[0].strip().casefold()
+
+
+@app.route("/starwood/word-yevmiye-doldur", methods=["GET", "POST"])
+def word_yevmiye_doldur():
+    if request.method == "POST":
+        word_files = [f for f in request.files.getlist("word_files") if f and f.filename]
+        excel_files = [f for f in request.files.getlist("excel_files") if f and f.filename]
+
+        if not word_files or not excel_files:
+            flash("Lütfen en az bir Word ve bir Excel dosyası seçin.", "error")
+            return render_template("word_yevmiye_doldur.html")
+
+        invalid_word = [f.filename for f in word_files if not f.filename.lower().endswith(".docx")]
+        invalid_excel = [f.filename for f in excel_files if not f.filename.lower().endswith(".xlsx")]
+        if invalid_word or invalid_excel:
+            invalid = invalid_word + invalid_excel
+            flash(f"Geçersiz dosya türü: {', '.join(invalid)}", "error")
+            return render_template("word_yevmiye_doldur.html")
+
+        word_map = {}
+        excel_map = {}
+        duplicate_names = []
+        for file in word_files:
+            key = _upload_stem(file.filename)
+            if key in word_map:
+                duplicate_names.append(file.filename)
+            word_map[key] = file
+        for file in excel_files:
+            key = _upload_stem(file.filename)
+            if key in excel_map:
+                duplicate_names.append(file.filename)
+            excel_map[key] = file
+
+        if duplicate_names:
+            flash(
+                f"Aynı ada sahip birden fazla dosya yüklenemez: {', '.join(duplicate_names)}",
+                "error",
+            )
+            return render_template("word_yevmiye_doldur.html")
+
+        missing_excel = sorted(word_map.keys() - excel_map.keys())
+        missing_word = sorted(excel_map.keys() - word_map.keys())
+        if missing_excel or missing_word:
+            parts = []
+            if missing_excel:
+                parts.append(f"Excel dosyası eksik: {', '.join(missing_excel)}")
+            if missing_word:
+                parts.append(f"Word dosyası eksik: {', '.join(missing_word)}")
+            flash(" | ".join(parts), "error")
+            return render_template("word_yevmiye_doldur.html")
+
+        pairs = []
+        for key, word_file in word_map.items():
+            excel_file = excel_map[key]
+            word_safe = secure_tr_filename(word_file.filename)
+            excel_safe = secure_tr_filename(excel_file.filename)
+            word_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{word_safe}")
+            excel_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{excel_safe}")
+            word_file.save(word_path)
+            excel_file.save(excel_path)
+            pairs.append((word_path, excel_path, word_file.filename))
+
+        try:
+            status, output_path, message = process_word_journal_pairs(pairs, OUTPUT_DIR)
+            flash(message, "warning" if status == "partial" else "success")
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=os.path.basename(output_path),
+            )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("word_yevmiye_doldur.html")
 
 
 @app.route("/starwood/ihrac-kayitli-hazirlama", methods=["GET", "POST"])

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Word Fatura Numaralarını Excel'e Aktarma{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Word Fatura Numaralarını Excel'e Aktarma</h1>
+    <p>Word belgelerindeki “FATURANIN NOSU” sütununu bulur ve fatura numaralarını tek bir Excel kitabında toplar.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="word_files">Word Dosyaları</label>
+            <input id="word_files" type="file" name="word_files" accept=".docx" multiple required>
+
+            <p class="help-text">
+                Birden fazla .docx dosyası seçebilirsiniz. Her Word dosyası Excel kitabında dosya adıyla ayrı bir sayfa olur. Tablo birden fazla Word sayfasına taşsa da tüm satırlar okunur.
+            </p>
+
+            <button type="submit" class="primary-btn">Excel Kitabını Hazırla</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

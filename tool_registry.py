@@ -88,6 +88,22 @@ TOOLS = [
         "url": "/starwood/ekstre-boyama"
     },
     {
+        "id": "word_fatura_nolari",
+        "name": "Word Fatura Numaralarını Excel'e Aktarma",
+        "category": "Starwood",
+        "description": "Birden fazla Word belgesindeki FATURANIN NOSU sütununu okur; her belge için dosya adıyla ayrı Excel sayfası oluşturur.",
+        "keywords": ["word", "docx", "fatura", "numara", "excel", "tablo", "starwood"],
+        "url": "/starwood/word-fatura-nolari"
+    },
+    {
+        "id": "word_yevmiye_doldur",
+        "name": "Word Yevmiye Bilgilerini Doldurma",
+        "category": "Starwood",
+        "description": "Aynı adlı Word ve Excel dosyalarını eşleştirir; yevmiye kayıt tarihini ve mahsup fiş numarasını Word tablosuna yazar.",
+        "keywords": ["word", "docx", "excel", "yevmiye", "mahsup", "fiş", "fatura", "starwood"],
+        "url": "/starwood/word-yevmiye-doldur"
+    },
+    {
         "id": "ihrac_kayitli_hazirlama",
         "name": "İhraç Kayıtlı Hazırlama",
         "category": "Starwood",

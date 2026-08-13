@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Word Yevmiye Bilgilerini Doldurma{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Word Yevmiye Bilgilerini Doldurma</h1>
+    <p>Excel kayıtlarını fatura numarasıyla eşleştirerek Word tablosundaki yevmiye tarihini ve mahsup fiş numarasını doldurur.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="word_files">Word Dosyaları</label>
+            <input id="word_files" type="file" name="word_files" accept=".docx" multiple required>
+
+            <label for="excel_files">Excel Dosyaları</label>
+            <input id="excel_files" type="file" name="excel_files" accept=".xlsx" multiple required>
+
+            <p class="help-text">
+                Word ve Excel dosyalarının uzantısız adları aynı olmalıdır. Örnek: STARWOOD - AKANSU.docx ve STARWOOD - AKANSU.xlsx. Eksik veya tutarsız bilgi bulunan Word dosyaları ZIP içinde “(ilgilen)” ekiyle adlandırılır.
+            </p>
+
+            <button type="submit" class="primary-btn">Word Dosyalarını Doldur</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
