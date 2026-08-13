@@ -70,37 +70,50 @@ def _date_value(value, epoch) -> date | None:
     return None
 
 
-def _find_excel_columns(worksheet) -> tuple[int, dict[str, int]]:
-    last_header_row = min(worksheet.max_row, 20)
-    for row_number in range(1, last_header_row + 1):
-        normalized = {
-            _normalize_text(worksheet.cell(row_number, col).value): col
-            for col in range(1, worksheet.max_column + 1)
-            if worksheet.cell(row_number, col).value is not None
-        }
-        resolved = {}
-        for key, aliases in EXCEL_HEADERS.items():
-            for alias in aliases:
-                column = normalized.get(_normalize_text(alias))
-                if column:
-                    resolved[key] = column
-                    break
-        if len(resolved) == len(EXCEL_HEADERS):
-            return row_number, resolved
-
-    expected = "Kayıt tarihi, Belge tarihi, Yevmiye No ve Referans"
-    raise ValueError(f"Excel dosyasında gerekli başlıklar bulunamadı: {expected}.")
+def _resolve_excel_columns(row_values) -> dict[str, int] | None:
+    """Bir başlık satırındaki gerekli sütunları sıfır tabanlı olarak çözer."""
+    normalized = {
+        _normalize_text(value): index
+        for index, value in enumerate(row_values)
+        if value is not None
+    }
+    resolved = {}
+    for key, aliases in EXCEL_HEADERS.items():
+        for alias in aliases:
+            column = normalized.get(_normalize_text(alias))
+            if column is not None:
+                resolved[key] = column
+                break
+    return resolved if len(resolved) == len(EXCEL_HEADERS) else None
 
 
 def read_excel_records(excel_path: str) -> dict[str, dict]:
     workbook = load_workbook(excel_path, data_only=True, read_only=True)
     try:
         worksheet = workbook["Data"] if "Data" in workbook.sheetnames else workbook[workbook.sheetnames[0]]
-        header_row, columns = _find_excel_columns(worksheet)
         grouped = {}
+        columns = None
 
-        for row_number in range(header_row + 1, worksheet.max_row + 1):
-            reference = _identifier(worksheet.cell(row_number, columns["reference"]).value)
+        # Read-only çalışma sayfalarında worksheet.cell(...) her çağrıda XML'i
+        # baştan tarar. Tüm satırları tek seferde dolaşmak VPS'deki uzun beklemeyi
+        # ortadan kaldırır ve bellek kullanımını düşük tutar.
+        for row_number, row_values in enumerate(
+            worksheet.iter_rows(values_only=True),
+            start=1,
+        ):
+            if columns is None:
+                if row_number <= 20:
+                    columns = _resolve_excel_columns(row_values)
+                    if columns is not None:
+                        continue
+                if row_number >= 20:
+                    expected = "Kayıt tarihi, Belge tarihi, Yevmiye No ve Referans"
+                    raise ValueError(
+                        f"Excel dosyasında gerekli başlıklar bulunamadı: {expected}."
+                    )
+                continue
+
+            reference = _identifier(row_values[columns["reference"]])
             if not reference:
                 continue
 
@@ -115,14 +128,18 @@ def read_excel_records(excel_path: str) -> dict[str, dict]:
                 },
             )
             item["record_dates"].add(
-                _date_value(worksheet.cell(row_number, columns["record_date"]).value, workbook.epoch)
+                _date_value(row_values[columns["record_date"]], workbook.epoch)
             )
             item["document_dates"].add(
-                _date_value(worksheet.cell(row_number, columns["document_date"]).value, workbook.epoch)
+                _date_value(row_values[columns["document_date"]], workbook.epoch)
             )
             item["journal_numbers"].add(
-                _journal_text(worksheet.cell(row_number, columns["journal_no"]).value)
+                _journal_text(row_values[columns["journal_no"]])
             )
+
+        if columns is None:
+            expected = "Kayıt tarihi, Belge tarihi, Yevmiye No ve Referans"
+            raise ValueError(f"Excel dosyasında gerekli başlıklar bulunamadı: {expected}.")
 
         records = {}
         for key, item in grouped.items():

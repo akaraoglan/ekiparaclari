@@ -12,7 +12,11 @@ from xml.dom import minidom
 from openpyxl import Workbook
 
 import app as app_module
-from tools.word_yevmiye_doldur import fill_word_journal_table, process_word_journal_pairs
+from tools.word_yevmiye_doldur import (
+    fill_word_journal_table,
+    process_word_journal_pairs,
+    read_excel_records,
+)
 
 
 @contextmanager
@@ -62,6 +66,40 @@ class WordYevmiyeDoldurTest(unittest.TestCase):
             self.assertEqual(["", "45000"], rows["FATURA2"])
             self.assertEqual(["", ""], rows["FATURA3"])
             self.assertEqual(["FATURA2", "FATURA3"], result["attention_invoices"])
+
+    def test_read_only_excel_is_consumed_in_one_sequential_pass(self):
+        class SequentialWorksheet:
+            def iter_rows(self, values_only=False):
+                self.assert_values_only = values_only
+                yield ("Referans", "Kayıt tarihi", "Belge tarihi", "Yevmiye No")
+                yield ("FATURA1", date(2026, 1, 7), date(2026, 1, 7), 34022)
+                yield ("FATURA1", date(2026, 1, 7), date(2026, 1, 7), 34022)
+
+            def cell(self, *args, **kwargs):
+                raise AssertionError("Read-only sayfada hücre bazlı erişim kullanılmamalı.")
+
+        class SequentialWorkbook:
+            sheetnames = ["Data"]
+            epoch = None
+
+            def __init__(self):
+                self.worksheet = SequentialWorksheet()
+                self.closed = False
+
+            def __getitem__(self, key):
+                return self.worksheet
+
+            def close(self):
+                self.closed = True
+
+        workbook = SequentialWorkbook()
+        with patch("tools.word_yevmiye_doldur.load_workbook", return_value=workbook):
+            records = read_excel_records("test.xlsx")
+
+        self.assertEqual("07.01.2026", records["fatura1"]["record_date"])
+        self.assertEqual("34022", records["fatura1"]["journal_no"])
+        self.assertTrue(workbook.worksheet.assert_values_only)
+        self.assertTrue(workbook.closed)
 
     def test_zip_marks_document_that_needs_attention(self):
         with _flat_workspace(self.TEST_ROOT) as (folder, prefix):
