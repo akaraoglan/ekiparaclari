@@ -104,6 +104,14 @@ TOOLS = [
         "url": "/starwood/word-yevmiye-doldur"
     },
     {
+        "id": "en_yuksek_mallar",
+        "name": "En Yüksek Mal Alışları Excel Tablosu",
+        "category": "Starwood",
+        "description": "Trivat Data raporunda cari adında orman geçenleri analiz eder ve en yüksek 10 cariyi Excel'e yeni sayfa olarak ekler.",
+        "keywords": ["trivat", "orman", "mal alış", "en yüksek", "excel", "net tutar", "kdv", "starwood"],
+        "url": "/starwood/en-yuksek-mallar"
+    },
+    {
         "id": "ihrac_kayitli_hazirlama",
         "name": "İhraç Kayıtlı Hazırlama",
         "category": "Starwood",

@@ -20,6 +20,7 @@ from tools.ithalde_indirilecek_kdv import process_ithalde_indirilecek_kdv
 from tools.ithaldeindirilecekfinal import process_ithaldeindirilecekfinal
 from tools.word_fatura_no import word_invoices_to_excel
 from tools.word_yevmiye_doldur import process_word_journal_pairs
+from tools.en_yuksek_alis_excel import process_highest_purchase_workbook
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -500,6 +501,42 @@ def word_yevmiye_doldur():
             flash(f"Hata: {exc}", "error")
 
     return render_template("word_yevmiye_doldur.html")
+
+
+@app.route("/starwood/en-yuksek-mallar", methods=["GET", "POST"])
+def en_yuksek_mallar():
+    if request.method == "POST":
+        excel_file = request.files.get("excel_file")
+
+        if not excel_file or not excel_file.filename:
+            flash("Lütfen bir Trivat Excel raporu seçin.", "error")
+            return render_template("en_yuksek_alis_excel.html")
+        if not excel_file.filename.lower().endswith(".xlsx"):
+            flash("Excel raporu .xlsx uzantılı olmalıdır.", "error")
+            return render_template("en_yuksek_alis_excel.html")
+
+        excel_path = os.path.join(
+            UPLOAD_DIR,
+            f"{uuid.uuid4()}_{secure_tr_filename(excel_file.filename)}",
+        )
+        excel_file.save(excel_path)
+
+        try:
+            status, output_path, message, download_name = process_highest_purchase_workbook(
+                excel_path,
+                excel_file.filename,
+                OUTPUT_DIR,
+            )
+            flash(message, "warning" if status == "partial" else "success")
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=download_name,
+            )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("en_yuksek_alis_excel.html")
 
 
 @app.route("/starwood/ihrac-kayitli-hazirlama", methods=["GET", "POST"])

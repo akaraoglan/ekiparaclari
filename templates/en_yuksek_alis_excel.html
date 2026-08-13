@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}En Yüksek Mal Alışları Excel Tablosu{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>En Yüksek Mal Alışları Excel Tablosu</h1>
+    <p>Trivat raporundaki “orman” carilerini analiz eder ve hazır tabloyu Excel kitabına yeni bir sayfa olarak ekler.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="excel_file">Trivat Excel Raporu</label>
+            <input id="excel_file" type="file" name="excel_file" accept=".xlsx" required>
+
+            <p class="help-text">
+                Excel’in Data sayfası yeterlidir. Araç, cari adında “orman” geçen ve en az iki faturası bulunan carileri en yüksek tek faturaya göre sıralar. İlk 10 cariyi “En Yüksek 10” adlı yeni sayfaya yazar. Vergi Dairesi sütunu boş bırakılır.
+            </p>
+
+            <button type="submit" class="primary-btn">Excel Tablosunu Hazırla</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
