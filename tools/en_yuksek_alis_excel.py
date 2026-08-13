@@ -5,7 +5,7 @@ from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Font, Side
 
 from tools.common import secure_tr_filename
 from tools.word_yevmiye_doldur import _normalize_text
@@ -19,13 +19,6 @@ EXCEL_HEADERS = {
     "vat": {"kdv"},
 }
 OUTPUT_SHEET_NAME = "En Yüksek 10"
-OUTPUT_HEADERS = [
-    "SOYADI/ADI VEYA UNVANI",
-    "VERGİ DAİRESİ",
-    "VERGİ NUMARASI",
-    "SAYISI",
-    "TUTAR",
-]
 ATTENTION_SUFFIX = re.compile(r"\s*\((?:ilgilen|en yüksek 10)\)\s*$", re.IGNORECASE)
 
 
@@ -71,9 +64,9 @@ def _format_tax_no(value) -> str:
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     digits = re.sub(r"\D", "", str(value or ""))
-    if len(digits) == 10:
-        return f"{digits[:3]} {digits[3:6]} {digits[6:]}"
-    return str(value or "").strip()
+    if digits and len(digits) <= 10:
+        digits = digits.zfill(10)
+    return digits or str(value or "").strip()
 
 
 def _read_top_forest_suppliers_from_rows(rows, limit: int = 10) -> list[dict]:
@@ -154,23 +147,35 @@ def _create_output_sheet(workbook, suppliers: list[dict]):
         workbook.remove(workbook[OUTPUT_SHEET_NAME])
     worksheet = workbook.create_sheet(OUTPUT_SHEET_NAME)
     worksheet.sheet_view.showGridLines = False
-    worksheet.freeze_panes = "A2"
+    worksheet.freeze_panes = "A3"
 
-    header_fill = PatternFill("solid", fgColor="1F4E78")
-    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    body_font = Font(name="Calibri", size=11, color="1F1F1F")
-    alternate_fill = PatternFill("solid", fgColor="D9EAF7")
-    thin_gray = Side(style="thin", color="B4C6E7")
-    border = Border(bottom=thin_gray)
+    thin = Side(style="thin")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_font = Font(name="Calibri", size=11, bold=True)
+    body_font = Font(name="Calibri", size=11)
 
-    for column, header in enumerate(OUTPUT_HEADERS, start=1):
-        cell = worksheet.cell(row=1, column=column, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    worksheet.merge_cells("A1:A2")
+    worksheet.merge_cells("D1:D2")
+    worksheet.merge_cells("E1:E2")
+    header_values = {
+        "A1": "SOYADI/ADI VEYA UNVANI",
+        "B1": "VERGİ",
+        "B2": "DAİRESİ",
+        "C1": "VERGİ",
+        "C2": "NUMARASI",
+        "D1": "SAYISI",
+        "E1": "TUTAR",
+    }
+    for coordinate, value in header_values.items():
+        worksheet[coordinate] = value
+    for row in worksheet.iter_rows(min_row=1, max_row=2, min_col=1, max_col=5):
+        for cell in row:
+            cell.font = header_font
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    for row_index in range(2, 12):
-        supplier_index = row_index - 2
+    for row_index in range(3, 13):
+        supplier_index = row_index - 3
         supplier = suppliers[supplier_index] if supplier_index < len(suppliers) else None
         values = [
             supplier["name"] if supplier else "",
@@ -184,30 +189,24 @@ def _create_output_sheet(workbook, suppliers: list[dict]):
             cell.font = body_font
             cell.border = border
             cell.alignment = Alignment(
-                horizontal="left" if column in (1, 2) else "center",
+                horizontal="left" if column in (1, 2) else ("right" if column == 5 else "center"),
                 vertical="center",
             )
-            if row_index % 2 == 1:
-                cell.fill = alternate_fill
 
-    worksheet.column_dimensions["A"].width = 48
-    worksheet.column_dimensions["B"].width = 22
-    worksheet.column_dimensions["C"].width = 20
-    worksheet.column_dimensions["D"].width = 12
-    worksheet.column_dimensions["E"].width = 20
-    worksheet.row_dimensions[1].height = 32
-    for row_index in range(2, 12):
-        worksheet.row_dimensions[row_index].height = 22
+    worksheet.column_dimensions["A"].width = 39.43
+    worksheet.column_dimensions["B"].width = 8.43
+    worksheet.column_dimensions["C"].width = 11.86
+    worksheet.column_dimensions["D"].width = 7.14
+    worksheet.column_dimensions["E"].width = 12
 
-    for row_index in range(2, 12):
+    for row_index in range(3, 13):
         worksheet.cell(row=row_index, column=3).number_format = "@"
         worksheet.cell(row=row_index, column=4).number_format = "#,##0"
         worksheet.cell(row=row_index, column=5).number_format = "#,##0.00"
-    worksheet.auto_filter.ref = "A1:E11"
     worksheet.sheet_properties.pageSetUpPr.fitToPage = True
     worksheet.page_setup.fitToWidth = 1
     worksheet.page_setup.fitToHeight = 1
-    worksheet.print_area = "A1:E11"
+    worksheet.print_area = "A1:E12"
     worksheet.sheet_view.zoomScale = 90
     return worksheet
 
