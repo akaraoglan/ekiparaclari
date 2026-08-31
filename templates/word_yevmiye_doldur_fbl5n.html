@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Word Yevmiye Bilgilerini Doldurma FBL5N{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Word Yevmiye Bilgilerini Doldurma FBL5N</h1>
+    <p>FBL5N Excel kayıtlarını Referans sütunundaki fatura numarasıyla eşleştirerek Word tablosundaki yevmiye tarihini ve mahsup fiş numarasını doldurur.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="word_files">Word Dosyaları</label>
+            <input id="word_files" type="file" name="word_files" accept=".docx" multiple required>
+
+            <label for="excel_files">FBL5N Excel Dosyaları</label>
+            <input id="excel_files" type="file" name="excel_files" accept=".xlsx" multiple required>
+
+            <p class="help-text">
+                Word ve Excel dosyalarının uzantısız adları aynı olmalıdır. Excel'deki Kayıt tarihi Word'e yevmiye kayıt tarihi, Belge numarası ise mahsup fiş numarası olarak yazılır. Aynı denkleştirme belgesinde TK türünde kayıt varsa ilgili ters kayıt eşleştirmeye alınmaz. Eksik veya tutarsız bilgi bulunan Word dosyaları ZIP içinde “(ilgilen)” ekiyle adlandırılır.
+            </p>
+
+            <button type="submit" class="primary-btn">Word Dosyalarını FBL5N ile Doldur</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -104,6 +104,14 @@ TOOLS = [
         "url": "/starwood/word-yevmiye-doldur"
     },
     {
+        "id": "word_yevmiye_doldur_fbl5n",
+        "name": "Word Yevmiye Bilgilerini Doldurma FBL5N",
+        "category": "Starwood",
+        "description": "FBL5N Excel kayıtlarında Referans sütunuyla faturayı eşleştirir; Kayıt tarihini ve Belge numarasını Word tablosuna yazar.",
+        "keywords": ["word", "docx", "excel", "fbl5n", "yevmiye", "mahsup", "referans", "denkleştirme", "starwood"],
+        "url": "/starwood/word-yevmiye-doldur-fbl5n"
+    },
+    {
         "id": "en_yuksek_mallar",
         "name": "En Yüksek Mal Alışları Excel Tablosu",
         "category": "Starwood",
