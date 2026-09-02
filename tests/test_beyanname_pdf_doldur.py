@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import zipfile
 
 import fitz
 from openpyxl import Workbook
@@ -10,6 +11,7 @@ from tools.beyanname_pdf_doldur import (
     format_tr_amount,
     format_tr_quantity,
     load_import_rows,
+    process_declaration_pdfs,
     _extract_declaration,
 )
 
@@ -112,6 +114,44 @@ class BeyannamePdfDoldurTest(unittest.TestCase):
                     str(output_path),
                     {"26161700IM00000505": []},
                 )
+
+    def test_partial_result_zip_contains_unmatched_pdf_list(self):
+        folder = Path(__file__).resolve().parents[1] / "outputs" / "beyanname_pdf_unit_test"
+        folder.mkdir(parents=True, exist_ok=True)
+
+        def fake_annotate(input_path, output_path, rows_by_declaration):
+            if input_path.endswith("bulunamadi.pdf"):
+                raise ValueError("PDF'de Excel ile eşleşen beyanname numarası bulunamadı.")
+            self._write_pdf(output_path)
+            return 1, []
+
+        pdf_files = [
+            (str(folder / "bulundu.pdf"), "bulundu.pdf"),
+            (str(folder / "bulunamadi.pdf"), "bulunamadi.pdf"),
+        ]
+        with patch(
+            "tools.beyanname_pdf_doldur.load_import_rows",
+            return_value={"26161700IM00000505": []},
+        ), patch(
+            "tools.beyanname_pdf_doldur.annotate_pdf",
+            side_effect=fake_annotate,
+        ):
+            status, zip_path, download_name, message = process_declaration_pdfs(
+                pdf_files,
+                str(folder / "data.xlsx"),
+                str(folder),
+            )
+
+        self.assertEqual("partial", status)
+        self.assertTrue(download_name.endswith(".zip"))
+        self.assertIn("1/2 PDF", message)
+        with zipfile.ZipFile(zip_path) as archive:
+            names = archive.namelist()
+            self.assertIn("bulunamayanlar.txt", names)
+            self.assertTrue(any(name.startswith("bulundu_doldurulmus_") for name in names))
+            report = archive.read("bulunamayanlar.txt").decode("utf-8-sig")
+        self.assertIn("bulunamadi.pdf", report)
+        self.assertIn("eşleşen beyanname numarası bulunamadı", report)
 
     @staticmethod
     def _write_excel(path):

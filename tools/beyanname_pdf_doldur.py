@@ -8,6 +8,7 @@ import re
 import threading
 import unicodedata
 import uuid
+import zipfile
 
 import fitz
 from openpyxl import load_workbook
@@ -481,6 +482,7 @@ def process_declaration_pdfs(pdf_files, excel_path: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
     output_paths = []
     all_warnings = []
+    unmatched_pdfs = []
     matched_pdf_count = 0
 
     for index, (pdf_path, original_name) in enumerate(pdf_files, start=1):
@@ -490,7 +492,9 @@ def process_declaration_pdfs(pdf_files, excel_path: str, output_dir: str):
         try:
             matched_pages, warnings = annotate_pdf(pdf_path, output_path, rows_by_declaration)
         except Exception as exc:
-            all_warnings.append(f"{original_name}: {exc}")
+            reason = str(exc)
+            unmatched_pdfs.append((original_name, reason))
+            all_warnings.append(f"{original_name}: {reason}")
             continue
         matched_pdf_count += 1
         output_paths.append(output_path)
@@ -505,10 +509,21 @@ def process_declaration_pdfs(pdf_files, excel_path: str, output_dir: str):
     if all_warnings:
         message += f" {len(all_warnings)} uyarı oluştu."
 
-    if len(output_paths) == 1:
+    if len(output_paths) == 1 and not unmatched_pdfs:
         return status, output_paths[0], os.path.basename(output_paths[0]), message
 
     zip_name = f"beyanname_pdfleri_{uuid.uuid4().hex[:8]}.zip"
     zip_path = os.path.join(output_dir, zip_name)
     zip_files(output_paths, zip_path)
+    if unmatched_pdfs:
+        lines = [
+            "BULUNAMAYAN PDF DOSYALARI",
+            "=========================",
+            f"Toplam: {len(unmatched_pdfs)}",
+            "",
+        ]
+        for number, (original_name, reason) in enumerate(unmatched_pdfs, start=1):
+            lines.extend((f"{number}. {original_name}", f"   Neden: {reason}", ""))
+        with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("bulunamayanlar.txt", "\n".join(lines).encode("utf-8-sig"))
     return status, zip_path, zip_name, message
