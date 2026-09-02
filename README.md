@@ -30,3 +30,11 @@ Taranmış gümrük tahsilat PDF'lerindeki beyanname numarası RapidOCR ile okun
 Gerekli OCR paketleri `requirements.txt` üzerinden kurulur; ayrıca bir masaüstü
 uygulaması veya Tesseract kurulması gerekmez. Sunucuda proje bağımlılıklarını
 yeniden kurmak yeterlidir.
+
+Minimal Linux sunucularda OpenCV'nin ihtiyaç duyduğu `libGL1` paketi de gerekebilir:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libgl1
+python -m rapidocr check
+```

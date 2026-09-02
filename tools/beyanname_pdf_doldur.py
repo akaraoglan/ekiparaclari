@@ -199,18 +199,19 @@ def _extract_declaration(page, known: set[str]) -> str | None:
     if declaration:
         return declaration
 
-    rapidocr_available = True
-    try:
-        rapidocr_text = _rapidocr_text(page)
-    except ImportError:
-        rapidocr_available = False
-        rapidocr_text = ""
-    except Exception:
-        rapidocr_text = ""
+    rapidocr_error = None
+    rapidocr_completed = False
+    for scale in (2.0, 3.0):
+        try:
+            rapidocr_text = _rapidocr_text(page, scale=scale)
+            rapidocr_completed = True
+        except Exception as exc:
+            rapidocr_error = exc
+            break
 
-    declaration = _find_known_declaration(rapidocr_text, known)
-    if declaration:
-        return declaration
+        declaration = _find_known_declaration(rapidocr_text, known)
+        if declaration:
+            return declaration
 
     try:
         ocr_options = {"language": "eng", "dpi": 300, "full": True}
@@ -219,22 +220,45 @@ def _extract_declaration(page, known: set[str]) -> str | None:
             ocr_options["tessdata"] = tessdata
         text_page = page.get_textpage_ocr(**ocr_options)
     except RuntimeError as exc:
-        if rapidocr_available:
+        if rapidocr_error is not None:
+            raise ValueError(_rapidocr_error_message(rapidocr_error)) from rapidocr_error
+        if rapidocr_completed:
             return None
         raise ValueError(
             "PDF taranmış görüntüden oluşuyor ve OCR bileşenleri kullanılamıyor. "
             "Sunucuda 'pip install -r requirements.txt' komutunu çalıştırın."
         ) from exc
-    return _find_known_declaration(page.get_text(textpage=text_page), known)
+    declaration = _find_known_declaration(page.get_text(textpage=text_page), known)
+    if declaration:
+        return declaration
+    if rapidocr_error is not None:
+        raise ValueError(_rapidocr_error_message(rapidocr_error)) from rapidocr_error
+    return None
 
 
-def _rapidocr_text(page) -> str:
+def _rapidocr_error_message(exc: Exception) -> str:
+    detail = str(exc).splitlines()[0][:180]
+    detail_lower = detail.casefold()
+    if "libgl.so.1" in detail_lower or "libgl" in detail_lower:
+        return (
+            "RapidOCR başlatılamadı: Linux sunucuda libGL1 eksik. "
+            "'sudo apt-get install -y libgl1' komutuyla kurup servisi yeniden başlatın."
+        )
+    if "onnxruntime" in detail_lower or isinstance(exc, ImportError):
+        return (
+            "RapidOCR başlatılamadı: ONNX Runtime veya OCR paketleri eksik. "
+            "Uygulamanın sanal ortamında 'pip install -r requirements.txt' komutunu çalıştırın."
+        )
+    return f"RapidOCR çalıştırılamadı ({type(exc).__name__}: {detail})."
+
+
+def _rapidocr_text(page, scale: float = 2.0) -> str:
     import numpy as np
     from rapidocr import RapidOCR
 
     global _RAPID_OCR_ENGINE
     pixmap = page.get_pixmap(
-        matrix=fitz.Matrix(2, 2),
+        matrix=fitz.Matrix(scale, scale),
         colorspace=fitz.csRGB,
         alpha=False,
     )
@@ -424,10 +448,12 @@ def annotate_pdf(input_path: str, output_path: str, rows_by_declaration) -> tupl
     try:
         for page_number in range(source.page_count):
             source_page = source[page_number]
+            page_error = None
             try:
                 declaration = _extract_declaration(source_page, known)
             except ValueError as exc:
-                warnings.append(f"Sayfa {page_number + 1}: {exc}")
+                page_error = f"Sayfa {page_number + 1}: {exc}"
+                warnings.append(page_error)
                 declaration = None
 
             output.insert_pdf(source, from_page=page_number, to_page=page_number)
@@ -435,19 +461,14 @@ def annotate_pdf(input_path: str, output_path: str, rows_by_declaration) -> tupl
             if declaration:
                 _draw_page_content(output, output_page, declaration, rows_by_declaration[declaration])
                 matched_pages += 1
-            else:
+            elif page_error is None:
                 warnings.append(
                     f"Sayfa {page_number + 1}: Excel ile eşleşen beyanname numarası bulunamadı."
                 )
 
         if matched_pages == 0:
-            ocr_error = next(
-                (warning for warning in warnings if "Tesseract OCR" in warning),
-                None,
-            )
-            if ocr_error:
-                raise ValueError(ocr_error.split(": ", 1)[-1])
-            raise ValueError("PDF'de Excel ile eşleşen beyanname numarası bulunamadı.")
+            detail = warnings[0] if warnings else "PDF'de Excel ile eşleşen beyanname numarası bulunamadı."
+            raise ValueError(detail.split(": ", 1)[-1])
         output.save(output_path, garbage=4, deflate=True)
     finally:
         output.close()

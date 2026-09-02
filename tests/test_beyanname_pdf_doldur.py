@@ -68,6 +68,51 @@ class BeyannamePdfDoldurTest(unittest.TestCase):
             self.assertEqual("26161700IM00000505", _extract_declaration(page, known))
         document.close()
 
+    def test_scanned_page_retries_at_higher_resolution(self):
+        document = fitz.open()
+        page = document.new_page()
+        known = {"26161700IM00000505"}
+        with patch(
+            "tools.beyanname_pdf_doldur._rapidocr_text",
+            side_effect=["okunamadi", "26161700IM00000505"],
+        ) as rapidocr:
+            self.assertEqual("26161700IM00000505", _extract_declaration(page, known))
+            self.assertEqual([2.0, 3.0], [call.kwargs["scale"] for call in rapidocr.call_args_list])
+        document.close()
+
+    def test_linux_ocr_dependency_error_is_not_hidden(self):
+        document = fitz.open()
+        page = document.new_page()
+        with patch(
+            "tools.beyanname_pdf_doldur._rapidocr_text",
+            side_effect=ImportError("libGL.so.1: cannot open shared object file"),
+        ), patch.object(
+            fitz.Page,
+            "get_textpage_ocr",
+            side_effect=RuntimeError("Tesseract is not installed"),
+        ):
+            with self.assertRaisesRegex(ValueError, "libGL1 eksik"):
+                _extract_declaration(page, {"26161700IM00000505"})
+        document.close()
+
+    def test_annotate_pdf_preserves_ocr_dependency_error(self):
+        folder = Path(__file__).resolve().parents[1] / "outputs" / "beyanname_pdf_unit_test"
+        folder.mkdir(parents=True, exist_ok=True)
+        source_path = folder / "ocr_error_source.pdf"
+        output_path = folder / "ocr_error_output.pdf"
+        self._write_pdf(source_path)
+
+        with patch(
+            "tools.beyanname_pdf_doldur._extract_declaration",
+            side_effect=ValueError("RapidOCR başlatılamadı: Linux sunucuda libGL1 eksik."),
+        ):
+            with self.assertRaisesRegex(ValueError, "libGL1 eksik"):
+                annotate_pdf(
+                    str(source_path),
+                    str(output_path),
+                    {"26161700IM00000505": []},
+                )
+
     @staticmethod
     def _write_excel(path):
         workbook = Workbook()
