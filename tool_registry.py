@@ -150,6 +150,14 @@ TOOLS = [
         "description": "İthalde İndirilecek KDV Excel dosyasına %20 KDV ve fark kontrolü ekler; gerektiğinde matrahı düzeltir ve I/J sütunlarını değer olarak sabitler.",
         "keywords": ["ithaldeindirilecekfinal", "ithalde", "indirilecek", "kdv", "matrah", "fark", "starwood", "excel"],
         "url": "/starwood/ithaldeindirilecekfinal"
+    },
+    {
+        "id": "beyanname_pdf_doldur",
+        "name": "Beyanname PDF Bilgilerini Doldurma",
+        "category": "Starwood",
+        "description": "Bir Excel dosyasını birden fazla gümrük tahsilat PDF'siyle eşleştirir; belge, teslimat miktarı, döviz ve TL tutarlarını PDF'lere yazar.",
+        "keywords": ["beyanname", "pdf", "excel", "satınalma", "teslimat", "miktar", "intrastat", "fatura", "toplam", "tl", "starwood"],
+        "url": "/starwood/beyanname-pdf-doldur"
     }
 ]
 

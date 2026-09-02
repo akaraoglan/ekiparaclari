@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Beyanname PDF Bilgilerini Doldurma{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>Beyanname PDF Bilgilerini Doldurma</h1>
+    <p>Bir Excel dosyasını birden fazla gümrük tahsilat PDF'siyle otomatik eşleştirir.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="excel_file">Excel Dosyası</label>
+            <input id="excel_file" type="file" name="excel_file" accept=".xlsx,.xlsm" required>
+            <small>Tek Excel dosyasında Data sayfası ve A-K sütunları kullanılacaktır.</small>
+
+            <label for="pdf_files">Gümrük Tahsilat PDF Dosyaları</label>
+            <input id="pdf_files" type="file" name="pdf_files" accept=".pdf" multiple required>
+            <small>Bir veya birden fazla PDF seçebilirsiniz.</small>
+
+            <button type="submit" class="primary-btn">PDF Dosyalarını Hazırla</button>
+        </form>
+    </div>
+
+    <div class="info-box">
+        <h3>İşlem düzeni</h3>
+        <ul>
+            <li>PDF'deki beyanname numarası Excel'in D sütununda aranır.</li>
+            <li>Kayıtlar Teslimat (A) sütununa göre sıralanır.</li>
+            <li>Satınalma belgesi, tutar, para birimi, teslimat miktarı, teslimat ve K sütunundaki TL tutarı PDF'ye eklenir.</li>
+            <li>Genel toplam ve birden fazla fatura varsa fatura ara toplamları gösterilir.</li>
+            <li>Birden fazla sonuç PDF'si ZIP dosyası olarak indirilir.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

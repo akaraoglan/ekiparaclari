@@ -19,5 +19,14 @@ Bu sürüm küçük ekip kullanımı için sade tutulmuştur.
 
 ## Kurulum
 
+```bash
 pip install -r requirements.txt
 python app.py
+```
+
+# OCR desteği
+
+Taranmış gümrük tahsilat PDF'lerindeki beyanname numarası RapidOCR ile okunur.
+Gerekli OCR paketleri `requirements.txt` üzerinden kurulur; ayrıca bir masaüstü
+uygulaması veya Tesseract kurulması gerekmez. Sunucuda proje bağımlılıklarını
+yeniden kurmak yeterlidir.

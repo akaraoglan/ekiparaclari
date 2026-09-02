@@ -22,6 +22,7 @@ from tools.word_fatura_no import word_invoices_to_excel
 from tools.word_yevmiye_doldur import process_word_journal_pairs
 from tools.word_yevmiye_doldur_fbl5n import process_word_journal_pairs_fbl5n
 from tools.en_yuksek_alis_excel import process_highest_purchase_workbook
+from tools.beyanname_pdf_doldur import process_declaration_pdfs
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -764,6 +765,60 @@ def ithaldeindirilecekfinal():
             flash(f"Hata: {exc}", "error")
 
     return render_template("ithaldeindirilecekfinal.html")
+
+
+@app.route("/starwood/beyanname-pdf-doldur", methods=["GET", "POST"])
+def beyanname_pdf_doldur():
+    if request.method == "POST":
+        excel_file = request.files.get("excel_file")
+        pdf_files = [f for f in request.files.getlist("pdf_files") if f and f.filename]
+
+        if not excel_file or not excel_file.filename:
+            flash("Lütfen bir Excel dosyası seçin.", "error")
+            return render_template("beyanname_pdf_doldur.html")
+        if not excel_file.filename.lower().endswith((".xlsx", ".xlsm")):
+            flash("Excel dosyası .xlsx veya .xlsm uzantılı olmalıdır.", "error")
+            return render_template("beyanname_pdf_doldur.html")
+        if not pdf_files:
+            flash("Lütfen en az bir PDF dosyası seçin.", "error")
+            return render_template("beyanname_pdf_doldur.html")
+
+        invalid_pdfs = [f.filename for f in pdf_files if not f.filename.lower().endswith(".pdf")]
+        if invalid_pdfs:
+            flash(f"Yalnızca PDF dosyaları yüklenebilir: {', '.join(invalid_pdfs)}", "error")
+            return render_template("beyanname_pdf_doldur.html")
+
+        excel_path = os.path.join(
+            UPLOAD_DIR,
+            f"{uuid.uuid4()}_{secure_tr_filename(excel_file.filename)}",
+        )
+        excel_file.save(excel_path)
+
+        saved_pdfs = []
+        for pdf_file in pdf_files:
+            pdf_path = os.path.join(
+                UPLOAD_DIR,
+                f"{uuid.uuid4()}_{secure_tr_filename(pdf_file.filename)}",
+            )
+            pdf_file.save(pdf_path)
+            saved_pdfs.append((pdf_path, pdf_file.filename))
+
+        try:
+            status, output_path, download_name, message = process_declaration_pdfs(
+                saved_pdfs,
+                excel_path,
+                OUTPUT_DIR,
+            )
+            flash(message, "warning" if status == "partial" else "success")
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=download_name,
+            )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("beyanname_pdf_doldur.html")
 
 
 if __name__ == "__main__":
