@@ -424,7 +424,7 @@ def _draw_page_content(doc, page, declaration: str, rows: list[ImportRow]):
             row.purchase_document,
             format_tr_amount(row.amount),
             row.currency,
-            format_tr_quantity(row.delivery_quantity),
+            f"{format_tr_quantity(row.delivery_quantity)} KG",
             row.delivery,
             f"{format_tr_amount(row.tl_amount)} TL",
         )
