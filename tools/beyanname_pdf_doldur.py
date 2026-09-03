@@ -22,9 +22,10 @@ EXPECTED_HEADERS = {
     "D": "gumruk beyanname numarasi",
     "E": "intrastat grubu",
     "G": "para birimi",
-    "H": "tsl.mkt.",
-    "I": "satinalma blg",
-    "J": "fatura",
+    "H": "teslimat miktari",
+    "I": "satinalma belgesi",
+    "J": "fatura numarasi",
+    "K": "yazisma dosya numarasi",
 }
 _RAPID_OCR_ENGINE = None
 _OCR_LOCK = threading.Lock()

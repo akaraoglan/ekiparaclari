@@ -167,10 +167,10 @@ class BeyannamePdfDoldurTest(unittest.TestCase):
                 "Intrastat grubu",
                 "Intrastat grubu",
                 "Para birimi",
-                "Tsl.mkt.",
-                "Satınalma blg",
-                "Fatura",
-                None,
+                "Teslimat miktarı",
+                "Satınalma belgesi",
+                "Fatura numarası",
+                "Yazışma dosya numarası",
             ]
         )
         worksheet.append([2026002416, None, None, "26161700IM00000505", 4620, None, "EUR", 1200, 5500004393, 30000017, 15058.88])
