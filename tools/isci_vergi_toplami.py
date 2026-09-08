@@ -5,6 +5,7 @@ import unicodedata
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from difflib import SequenceMatcher
 from statistics import median
 
 import fitz
@@ -15,7 +16,7 @@ from openpyxl.utils import get_column_letter
 
 _OCR_ENGINE = None
 _OCR_LOCK = threading.Lock()
-_MONEY_RE = re.compile(r"(?<!\d)\d{1,3}(?:\.\d{3})*,\d{2}(?!\d)|(?<!\d)\d+,\d{2}(?!\d)")
+_MONEY_RE = re.compile(r"(?<!\d)[0-9O]+(?:[.,'][0-9O]+)+(?!\d)", re.IGNORECASE)
 _EXCEL_COLUMNS = [
     ("gross", "Brüt Ücret (YK Dahil)"),
     ("income", "Gelir Vergisi (İşçi)"),
@@ -64,18 +65,44 @@ def _plain(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
+def _text_matches(text: str, label: str) -> bool:
+    normalized = _plain(text)
+    wanted = _plain(label)
+    if wanted in normalized:
+        return True
+    if wanted.replace(" ", "") in normalized.replace(" ", ""):
+        return True
+
+    words = normalized.split()
+    wanted_words = wanted.split()
+    if not words or not wanted_words:
+        return False
+    window_size = len(wanted_words)
+    for start in range(max(1, len(words) - window_size + 1)):
+        candidate = " ".join(words[start:start + window_size])
+        if SequenceMatcher(None, wanted, candidate).ratio() >= 0.90:
+            return True
+    return False
+
+
 def _parse_money(text: str) -> Decimal | None:
     compact = text.replace(" ", "")
-    match = _MONEY_RE.search(compact)
-    if not match:
-        zero_candidate = compact.upper().replace("O", "0")
-        if re.fullmatch(r"0+[,.']0+", zero_candidate):
+    for match in _MONEY_RE.finditer(compact):
+        candidate = match.group(0).upper().replace("O", "0")
+        if not set(candidate) - {"0", ".", ",", "'"}:
             return Decimal("0")
-        return None
-    try:
-        return Decimal(match.group(0).replace(".", "").replace(",", "."))
-    except InvalidOperation:
-        return None
+        separator_index = max(
+            candidate.rfind("."), candidate.rfind(","), candidate.rfind("'")
+        )
+        decimals = candidate[separator_index + 1:]
+        if len(decimals) != 2:
+            continue
+        integer_part = re.sub(r"[.,']", "", candidate[:separator_index])
+        try:
+            return Decimal(f"{integer_part}.{decimals}")
+        except InvalidOperation:
+            continue
+    return None
 
 
 def format_tr_money(value: Decimal) -> str:
@@ -211,11 +238,10 @@ def _find_section_y(
     x_max: float,
     after_y: float = 0,
 ) -> float | None:
-    wanted = _plain(label)
     for line in lines:
         if _line_y(line) <= after_y:
             continue
-        if wanted in _plain(_regional_text(line, width, x_min, x_max)):
+        if _text_matches(_regional_text(line, width, x_min, x_max), label):
             return _line_y(line)
     return None
 
@@ -229,13 +255,12 @@ def _named_amount(
     y_min: float = 0,
     y_max: float = float("inf"),
 ) -> Decimal | None:
-    wanted = _plain(label)
     for line in lines:
         line_y = _line_y(line)
         if not y_min < line_y < y_max:
             continue
-        line_label = _plain(_regional_text(line, width, *label_x))
-        if wanted not in line_label:
+        line_label = _regional_text(line, width, *label_x)
+        if not _text_matches(line_label, label):
             continue
         amounts = _regional_amounts(line, width, *amount_x)
         if amounts:
@@ -489,12 +514,6 @@ def _extract_additional_values(
     if None in (special_y, tax_discount_y, incentives_y, employer_cost_y):
         raise ValueError("Özel Kesintiler, Vergi İndirimi veya Teşvikler bölümü okunamadı.")
 
-    special_total = _section_total(
-        lines, width, special_y, tax_discount_y, (0.43, 0.67), (0.72, 0.99)
-    )
-    if special_total is None:
-        raise ValueError("Özel Kesintiler bölüm toplamı okunamadı.")
-
     advance = Decimal("0")
     other_advances = Decimal("0")
     for line in lines:
@@ -512,6 +531,24 @@ def _extract_additional_values(
             advance += amount
         else:
             other_advances += amount
+
+    special_total = _section_total(
+        lines, width, special_y, tax_discount_y, (0.43, 0.67), (0.72, 0.99)
+    )
+    if special_total is None:
+        bottom_special_total = _named_amount(
+            lines,
+            "ozel kesintiler toplami",
+            width,
+            (0.43, 0.78),
+            (0.78, 0.99),
+            employer_cost_y,
+            height,
+        )
+        if bottom_special_total is not None:
+            special_total = bottom_special_total + other_advances
+    if special_total is None:
+        raise ValueError("Özel Kesintiler bölüm toplamı okunamadı.")
 
     income_tax_incentive = _named_amount(
         lines,
