@@ -167,7 +167,7 @@ def isci_vergi_toplami():
             return send_file(
                 output_path,
                 as_attachment=True,
-                download_name="isci_vergi_toplami.xlsx",
+                download_name="bordro_toplamlari.xlsx",
             )
         except Exception as exc:
             flash(f"Hata: {exc}", "error")
