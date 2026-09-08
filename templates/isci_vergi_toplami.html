@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}İşçi Vergi Toplamı{% endblock %}
+{% block content %}
+<div class="tool-page">
+    <h1>İşçi Vergi Toplamı</h1>
+    <p>Her sayfadaki brüt ücreti, işçi gelir vergisini ve işçi damga vergisini okuyarak Excel dosyası halinde indirir. Varsa YK Ücreti brüt ücrete eklenir.</p>
+
+    <div class="card">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="pdf_files">Bordro PDF Dosyaları</label>
+            <input id="pdf_files" type="file" name="pdf_files" accept=".pdf,application/pdf" multiple required>
+            <small>Birden fazla dosyayı aynı anda seçebilirsiniz. Taranmış PDF'ler de desteklenir.</small>
+            <button type="submit" class="primary-btn">Excel'i Hazırla ve İndir</button>
+        </form>
+    </div>
+
+    {% if result and result.warnings %}
+        <div class="info-box warning-box">
+            <h3>Kontrol Gereken Sayfalar</h3>
+            <ul>
+                {% for warning in result.warnings %}<li>{{ warning }}</li>{% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

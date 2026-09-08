@@ -23,6 +23,7 @@ from tools.word_yevmiye_doldur import process_word_journal_pairs
 from tools.word_yevmiye_doldur_fbl5n import process_word_journal_pairs_fbl5n
 from tools.en_yuksek_alis_excel import process_highest_purchase_workbook
 from tools.beyanname_pdf_doldur import process_declaration_pdfs
+from tools.isci_vergi_toplami import analyze_tax_pdfs, create_tax_excel
 from tools.common import ensure_dirs, cleanup_old_files, secure_tr_filename, zip_files
 
 app = Flask(__name__)
@@ -133,6 +134,45 @@ def pdf_birlestir():
             flash(f"Hata: {e}", "error")
 
     return render_template("pdfbirlestir.html")
+
+
+@app.route("/pdf/isci-vergi-toplami", methods=["GET", "POST"])
+def isci_vergi_toplami():
+    if request.method == "POST":
+        pdf_files = [f for f in request.files.getlist("pdf_files") if f and f.filename]
+        if not pdf_files:
+            flash("Lütfen en az bir PDF dosyası seçin.", "error")
+            return render_template("isci_vergi_toplami.html")
+
+        invalid_files = [f.filename for f in pdf_files if not f.filename.lower().endswith(".pdf")]
+        if invalid_files:
+            flash(f"Yalnızca PDF dosyaları yüklenebilir: {', '.join(invalid_files)}", "error")
+            return render_template("isci_vergi_toplami.html")
+
+        saved_pdfs = []
+        for pdf_file in pdf_files:
+            path = os.path.join(
+                UPLOAD_DIR,
+                f"{uuid.uuid4()}_{secure_tr_filename(pdf_file.filename)}",
+            )
+            pdf_file.save(path)
+            saved_pdfs.append((path, pdf_file.filename))
+
+        try:
+            result = analyze_tax_pdfs(saved_pdfs)
+            if not result["rows"]:
+                flash("Yüklenen PDF'lerden vergi tutarı okunamadı.", "error")
+                return render_template("isci_vergi_toplami.html", result=result)
+            output_path = create_tax_excel(result, OUTPUT_DIR)
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name="isci_vergi_toplami.xlsx",
+            )
+        except Exception as exc:
+            flash(f"Hata: {exc}", "error")
+
+    return render_template("isci_vergi_toplami.html")
 
 @app.route("/pdf/dondur", methods=["GET", "POST"])
 def pdf_dondur():

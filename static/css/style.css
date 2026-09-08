@@ -254,6 +254,8 @@ body {
 .info-box ul { margin: 0; padding-left: 20px; color: var(--muted); }
 .info-box li { margin-bottom: 6px; line-height: 1.5; }
 
+.warning-box { border-color: #b68a00; }
+
 .help-text {
     background: var(--panel-2);
     border-left: 4px solid var(--accent);

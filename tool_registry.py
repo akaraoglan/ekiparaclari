@@ -40,6 +40,14 @@ TOOLS = [
         "url": "/pdf/ekle"
     },
     {
+        "id": "isci_vergi_toplami",
+        "name": "İşçi Vergi Toplamı",
+        "category": "PDF Araçları",
+        "description": "Bordro PDF'lerindeki brüt ücreti (varsa YK Ücreti dahil), işçi gelir ve damga vergisini Excel'e aktarır.",
+        "keywords": ["pdf", "bordro", "brüt ücret", "yk ücreti", "işçi", "gelir vergisi", "damga vergisi", "toplam", "ocr"],
+        "url": "/pdf/isci-vergi-toplami"
+    },
+    {
         "id": "kdviadesi_kontrol",
         "name": "KDV İadesi Mükellef Çıkartıcı",
         "category": "KDV İadesi Kontrol Raporu",
