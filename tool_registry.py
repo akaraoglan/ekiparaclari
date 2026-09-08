@@ -42,7 +42,7 @@ TOOLS = [
     {
         "id": "isci_vergi_toplami",
         "name": "İşçi Vergi Toplamı",
-        "category": "PDF Araçları",
+        "category": "Starwood",
         "description": "Bordro PDF'lerindeki brüt ücreti (varsa YK Ücreti dahil), işçi gelir ve damga vergisini Excel'e aktarır.",
         "keywords": ["pdf", "bordro", "brüt ücret", "yk ücreti", "işçi", "gelir vergisi", "damga vergisi", "toplam", "ocr"],
         "url": "/pdf/isci-vergi-toplami"
