@@ -207,6 +207,70 @@ def process_ihrac_kayitli(
         return "error", None, f"Hata oluştu: {exc}", []
 
 
+def find_missing_invoice_xml_refs(
+    detay_path: str,
+    ozet_path: str,
+    xml_paths: list[str] | None = None,
+) -> list[str]:
+    """Bekleyen işlemde XML'i hâlâ eksik olan dövizli faturaları döndürür."""
+    summary_rows = _read_summary_rows(ozet_path)
+    detail_groups, _ = _read_detail_groups(detay_path)
+    invoices = _read_invoice_xmls(xml_paths or [])
+    missing_refs = set()
+
+    for summary in summary_rows:
+        reference = summary["reference"]
+        groups = detail_groups.get(reference)
+        if not groups:
+            continue
+
+        currencies = {
+            currency
+            for group in groups.values()
+            for currency in group["currencies"]
+        }
+        is_try = bool(currencies) and currencies == {"TRY"}
+        if not is_try and _normalize_reference(reference) not in invoices:
+            missing_refs.add(reference)
+
+    return sorted(missing_refs)
+
+
+def create_missing_invoice_excel(references: list[str], output_dir: str) -> str:
+    """Fatura numaralarını başlıksız ve uzantısız olarak tek sütunlu Excel'e yazar."""
+    cleaned_references = []
+    for reference in references:
+        cleaned = re.sub(r"(?i)\.xml$", "", _clean_text(reference))
+        if cleaned:
+            cleaned_references.append(cleaned)
+
+    if not cleaned_references:
+        raise ValueError("İndirilecek eksik fatura numarası bulunamadı.")
+
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(
+        output_dir,
+        f"eksik_fatura_listesi_{uuid.uuid4().hex[:8]}.xlsx",
+    )
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Eksik Faturalar"
+    worksheet.sheet_view.showGridLines = False
+    worksheet.column_dimensions["A"].width = min(
+        60,
+        max(20, max(len(reference) for reference in cleaned_references) + 2),
+    )
+
+    for row_number, reference in enumerate(cleaned_references, start=1):
+        cell = worksheet.cell(row=row_number, column=1, value=reference)
+        cell.number_format = "@"
+        cell.alignment = Alignment(vertical="center")
+
+    workbook.save(output_path)
+    return output_path
+
+
 def _read_invoice_xmls(paths: list[str]) -> dict:
     invoices = {}
     for path in paths:

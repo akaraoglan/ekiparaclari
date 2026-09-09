@@ -14,7 +14,11 @@ from tools.xml_to_excel import xml_to_excel
 from tools.irsaliye_no import irsaliye_no_to_excel
 from tools.irsaliye_xml_to_excel import irsaliye_xml_to_excel
 from tools.ekstre_boyama import paint_vakifbank_pdf
-from tools.ihrac_kayitli import process_ihrac_kayitli
+from tools.ihrac_kayitli import (
+    create_missing_invoice_excel,
+    find_missing_invoice_xml_refs,
+    process_ihrac_kayitli,
+)
 from tools.ihrac_kayitli_final import process_ihrac_kayitli_final
 from tools.ithalde_indirilecek_kdv import process_ithalde_indirilecek_kdv
 from tools.ithaldeindirilecekfinal import process_ithaldeindirilecekfinal
@@ -772,6 +776,51 @@ def ihrac_kayitli_hazirlama():
             flash(f"Hata: {e}", "error")
 
     return render_template("ihrac_kayitli.html")
+
+
+@app.route("/starwood/ihrac-kayitli-eksik-xml-listesi", methods=["POST"])
+def ihrac_kayitli_eksik_xml_listesi():
+    batch_id = request.form.get("batch_id", "").strip().lower()
+    try:
+        parsed_batch_id = uuid.UUID(batch_id)
+        if parsed_batch_id.hex != batch_id:
+            raise ValueError
+    except ValueError:
+        flash("İşlem kimliği geçersiz. Detay ve Özet dosyalarını yeniden yükleyin.", "error")
+        return render_template("ihrac_kayitli.html")
+
+    detay_path = os.path.join(UPLOAD_DIR, f"{batch_id}_detay.xlsx")
+    ozet_path = os.path.join(UPLOAD_DIR, f"{batch_id}_ozet.xlsx")
+    if not os.path.isfile(detay_path) or not os.path.isfile(ozet_path):
+        flash("Bekleyen işlem bulunamadı veya 24 saatlik süresi doldu.", "error")
+        return render_template("ihrac_kayitli.html")
+
+    xml_prefix = f"{batch_id}_xml_"
+    xml_paths = [
+        os.path.join(UPLOAD_DIR, name)
+        for name in os.listdir(UPLOAD_DIR)
+        if name.startswith(xml_prefix) and name.lower().endswith(".xml")
+    ]
+
+    try:
+        missing_xml_refs = find_missing_invoice_xml_refs(
+            detay_path,
+            ozet_path,
+            xml_paths,
+        )
+        output_path = create_missing_invoice_excel(missing_xml_refs, OUTPUT_DIR)
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name="eksik_fatura_listesi.xlsx",
+        )
+    except Exception as exc:
+        flash(f"Eksik fatura listesi hazırlanamadı: {exc}", "error")
+        return render_template(
+            "ihrac_kayitli.html",
+            batch_id=batch_id,
+            missing_xml_refs=missing_xml_refs if "missing_xml_refs" in locals() else [],
+        )
 
 
 @app.route("/starwood/ihrac-kayitli-final", methods=["GET", "POST"])

@@ -15,6 +15,14 @@
             {% endfor %}
         </ul>
 
+        <form method="POST" action="{{ url_for('ihrac_kayitli_eksik_xml_listesi') }}">
+            <input type="hidden" name="batch_id" value="{{ batch_id }}">
+            <button type="submit" class="primary-btn">Listeyi Excel Olarak İndir</button>
+            <p class="help-text">
+                Fatura numaraları .xml uzantısı ve başlık olmadan A1'den başlayarak tek sütunda hazırlanır.
+            </p>
+        </form>
+
         <form method="POST" enctype="multipart/form-data">
             <input type="hidden" name="batch_id" value="{{ batch_id }}">
 
