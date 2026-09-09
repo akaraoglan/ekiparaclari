@@ -131,8 +131,8 @@ TOOLS = [
         "id": "ihrac_kayitli_hazirlama",
         "name": "İhraç Kayıtlı Hazırlama",
         "category": "Starwood",
-        "description": "Detay ve Özet Excel dosyalarından ihraç kayıtlı satış faturası listesini hazırlar.",
-        "keywords": ["ihrac", "ihraç", "kayıtlı", "starwood", "excel", "detay", "özet", "gtip"],
+        "description": "Detay ve Özet Excel dosyalarından ihraç kayıtlı satış faturası listesini hazırlar; dövizli faturaların TL tutarlarını XML'den tamamlar.",
+        "keywords": ["ihrac", "ihraç", "kayıtlı", "starwood", "excel", "xml", "döviz", "detay", "özet", "gtip"],
         "url": "/starwood/ihrac-kayitli-hazirlama"
     },
     {

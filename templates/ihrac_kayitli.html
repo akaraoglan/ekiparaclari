@@ -3,8 +3,32 @@
 {% block content %}
 <div class="tool-page">
     <h1>İhraç Kayıtlı Hazırlama</h1>
-    <p>Detay ve Özet Excel dosyalarından Sonuç dosyasını oluşturur.</p>
+    <p>Detay ve Özet Excel dosyalarından sonuç dosyasını oluşturur; dövizli faturaların TL tutarlarını XML'lerden tamamlar.</p>
 
+    {% if batch_id and missing_xml_refs %}
+    <div class="card warning-box">
+        <h2>Eksik Fatura XML'leri</h2>
+        <p>{{ pending_message or "Aşağıdaki dövizli faturaların XML dosyalarını yükleyin." }}</p>
+        <ul>
+            {% for reference in missing_xml_refs %}
+            <li><strong>{{ reference }}.xml</strong></li>
+            {% endfor %}
+        </ul>
+
+        <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="batch_id" value="{{ batch_id }}">
+
+            <label>Fatura XML'leri</label>
+            <input type="file" name="invoice_files" accept=".xml,text/xml,application/xml" multiple required>
+
+            <p class="help-text">
+                Detay ve Özet dosyalarını yeniden seçmeniz gerekmez. XML içindeki fatura numarasıyla otomatik eşleştirme yapılır.
+            </p>
+
+            <button type="submit" class="primary-btn">XML'leri Yükle ve Tamamla</button>
+        </form>
+    </div>
+    {% else %}
     <div class="card">
         <form method="POST" enctype="multipart/form-data">
             <label>Detay Dosyası</label>
@@ -13,12 +37,16 @@
             <label>Özet Dosyası</label>
             <input type="file" name="ozet_file" accept=".xlsx" required>
 
+            <label>Fatura XML'leri <span class="help-text">(isteğe bağlı)</span></label>
+            <input type="file" name="invoice_files" accept=".xml,text/xml,application/xml" multiple>
+
             <p class="help-text">
-                TRY dışındaki para birimlerinde K ve L sütunları boş bırakılır.
+                XML'leri ilk çalıştırmada yüklemeyebilirsiniz. Eksik dövizli faturalar varsa araç gerekli XML adlarını listeleyecek ve Detay/Özet dosyalarını 24 saat saklayacaktır.
             </p>
 
             <button type="submit" class="primary-btn">Sonuç Dosyasını Hazırla</button>
         </form>
     </div>
+    {% endif %}
 </div>
 {% endblock %}

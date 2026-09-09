@@ -661,34 +661,113 @@ def en_yuksek_mallar():
 @app.route("/starwood/ihrac-kayitli-hazirlama", methods=["GET", "POST"])
 def ihrac_kayitli_hazirlama():
     if request.method == "POST":
-        detay_file = request.files.get("detay_file")
-        ozet_file = request.files.get("ozet_file")
+        batch_id = request.form.get("batch_id", "").strip().lower()
+        if batch_id:
+            try:
+                parsed_batch_id = uuid.UUID(batch_id)
+                if parsed_batch_id.hex != batch_id:
+                    raise ValueError
+            except ValueError:
+                flash("İşlem kimliği geçersiz. Detay ve Özet dosyalarını yeniden yükleyin.", "error")
+                return render_template("ihrac_kayitli.html")
+            detay_path = os.path.join(UPLOAD_DIR, f"{batch_id}_detay.xlsx")
+            ozet_path = os.path.join(UPLOAD_DIR, f"{batch_id}_ozet.xlsx")
+            if not os.path.isfile(detay_path) or not os.path.isfile(ozet_path):
+                flash("Bekleyen işlem bulunamadı veya 24 saatlik süresi doldu.", "error")
+                return render_template("ihrac_kayitli.html")
+        else:
+            detay_file = request.files.get("detay_file")
+            ozet_file = request.files.get("ozet_file")
 
-        if not detay_file or not detay_file.filename:
-            flash("Lütfen Detay Dosyası'nı seçin.", "error")
-            return render_template("ihrac_kayitli.html")
-        if not ozet_file or not ozet_file.filename:
-            flash("Lütfen Özet Dosyası'nı seçin.", "error")
-            return render_template("ihrac_kayitli.html")
+            if not detay_file or not detay_file.filename:
+                flash("Lütfen Detay Dosyası'nı seçin.", "error")
+                return render_template("ihrac_kayitli.html")
+            if not ozet_file or not ozet_file.filename:
+                flash("Lütfen Özet Dosyası'nı seçin.", "error")
+                return render_template("ihrac_kayitli.html")
+            if not detay_file.filename.lower().endswith(".xlsx"):
+                flash("Detay dosyası .xlsx biçiminde olmalıdır.", "error")
+                return render_template("ihrac_kayitli.html")
+            if not ozet_file.filename.lower().endswith(".xlsx"):
+                flash("Özet dosyası .xlsx biçiminde olmalıdır.", "error")
+                return render_template("ihrac_kayitli.html")
 
-        detay_name = secure_tr_filename(detay_file.filename)
-        ozet_name = secure_tr_filename(ozet_file.filename)
-        detay_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{detay_name}")
-        ozet_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}_{ozet_name}")
-        detay_file.save(detay_path)
-        ozet_file.save(ozet_path)
+            batch_id = uuid.uuid4().hex
+            detay_path = os.path.join(UPLOAD_DIR, f"{batch_id}_detay.xlsx")
+            ozet_path = os.path.join(UPLOAD_DIR, f"{batch_id}_ozet.xlsx")
+            detay_file.save(detay_path)
+            ozet_file.save(ozet_path)
+
+        new_xml_paths = []
+        for invoice_file in request.files.getlist("invoice_files"):
+            if not invoice_file or not invoice_file.filename:
+                continue
+            if not invoice_file.filename.lower().endswith(".xml"):
+                flash(f"{invoice_file.filename}: Yalnızca XML faturası yüklenebilir.", "error")
+                return render_template("ihrac_kayitli.html")
+            xml_name = secure_tr_filename(invoice_file.filename)
+            xml_path = os.path.join(
+                UPLOAD_DIR,
+                f"{batch_id}_xml_{uuid.uuid4().hex}_{xml_name}",
+            )
+            invoice_file.save(xml_path)
+            new_xml_paths.append(xml_path)
+
+        xml_prefix = f"{batch_id}_xml_"
+        xml_paths = [
+            os.path.join(UPLOAD_DIR, name)
+            for name in os.listdir(UPLOAD_DIR)
+            if name.startswith(xml_prefix) and name.lower().endswith(".xml")
+        ]
 
         try:
-            status, output_path, message = process_ihrac_kayitli(detay_path, ozet_path, OUTPUT_DIR)
+            status, output_path, message, missing_xml_refs = process_ihrac_kayitli(
+                detay_path,
+                ozet_path,
+                OUTPUT_DIR,
+                xml_paths,
+            )
 
             if status == "error":
+                for xml_path in new_xml_paths:
+                    try:
+                        os.remove(xml_path)
+                    except OSError:
+                        pass
                 flash(message, "error")
+                retry_status, _, _, retry_missing = process_ihrac_kayitli(
+                    detay_path,
+                    ozet_path,
+                    OUTPUT_DIR,
+                    [path for path in xml_paths if path not in new_xml_paths],
+                )
+                if retry_status == "pending":
+                    return render_template(
+                        "ihrac_kayitli.html",
+                        batch_id=batch_id,
+                        missing_xml_refs=retry_missing,
+                    )
+            elif status == "pending":
+                return render_template(
+                    "ihrac_kayitli.html",
+                    batch_id=batch_id,
+                    missing_xml_refs=missing_xml_refs,
+                    pending_message=message,
+                )
             elif status == "partial":
                 flash(f"Uyarı: {message}", "warning")
-                return send_file(output_path, as_attachment=True)
+                return send_file(
+                    output_path,
+                    as_attachment=True,
+                    download_name="ihrac_kayitli_sonuc.xlsx",
+                )
             else:
                 flash(message, "success")
-                return send_file(output_path, as_attachment=True)
+                return send_file(
+                    output_path,
+                    as_attachment=True,
+                    download_name="ihrac_kayitli_sonuc.xlsx",
+                )
         except Exception as e:
             flash(f"Hata: {e}", "error")
 

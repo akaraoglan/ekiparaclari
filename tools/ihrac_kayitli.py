@@ -1,8 +1,10 @@
 import os
 import re
 import uuid
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
+from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, Side
@@ -83,19 +85,26 @@ RESULT_FORMATS = {
 }
 
 
-def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> tuple:
+def process_ihrac_kayitli(
+    detay_path: str,
+    ozet_path: str,
+    output_dir: str,
+    xml_paths: list[str] | None = None,
+) -> tuple:
     """
     Detay ve ozet Excel dosyalarindan ihrac kayitli satis faturasi listesi olusturur.
-    Doner: (status, output_path, message)
+    Doner: (status, output_path, message, missing_xml_refs)
     """
     try:
         summary_rows = _read_summary_rows(ozet_path)
         detail_groups, detail_refs = _read_detail_groups(detay_path)
+        invoices = _read_invoice_xmls(xml_paths or [])
 
         output_rows = []
         missing_refs = []
+        missing_xml_refs = set()
         used_refs = set()
-        foreign_currency_rows = 0
+        xml_filled_rows = 0
 
         for summary in summary_rows:
             reference = summary["reference"]
@@ -105,7 +114,35 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
                 continue
 
             used_refs.add(reference)
-            for gtip, group in sorted(groups.items(), key=lambda item: item[0], reverse=True):
+            sorted_groups = sorted(groups.items(), key=lambda item: item[0], reverse=True)
+            currencies = {
+                currency
+                for _, group in sorted_groups
+                for currency in group["currencies"]
+            }
+            is_try = bool(currencies) and currencies == {"TRY"}
+
+            allocated_bases = None
+            allocated_taxes = None
+            if not is_try:
+                invoice = invoices.get(_normalize_reference(reference))
+                if invoice is None:
+                    missing_xml_refs.add(reference)
+                    continue
+                if currencies and currencies != {invoice["currency"]}:
+                    detail_currency = ", ".join(sorted(currencies))
+                    raise ValueError(
+                        f"{reference}: Detay para birimi ({detail_currency}) ile XML para birimi "
+                        f"({invoice['currency']}) uyuşmuyor."
+                    )
+
+                weights = [group["tax_base"] for _, group in sorted_groups]
+                tl_base = _round_two(invoice["tax_base"] * invoice["exchange_rate"])
+                tl_tax = _round_two(invoice["tax_amount"] * invoice["exchange_rate"])
+                allocated_bases = _allocate_total(tl_base, weights, reference, "matrah")
+                allocated_taxes = _allocate_total(tl_tax, weights, reference, "KDV")
+
+            for group_index, (gtip, group) in enumerate(sorted_groups):
                 if group["m3"] == 0:
                     miktar = _truncate_two(group["quantity"])
                     miktar_kodu = "MTK"
@@ -113,14 +150,13 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
                     miktar = _truncate_two(group["m3"])
                     miktar_kodu = "MTQ"
 
-                is_try = group["currencies"] and all(cur == "TRY" for cur in group["currencies"])
                 if is_try:
                     matrah = _round_two(group["tax_base"])
                     kdv = _round_two(group["tax_base"] * KDV_ORANI)
                 else:
-                    matrah = None
-                    kdv = None
-                    foreign_currency_rows += 1
+                    matrah = allocated_bases[group_index]
+                    kdv = allocated_taxes[group_index]
+                    xml_filled_rows += 1
 
                 output_rows.append({
                     "date": summary["date"],
@@ -134,8 +170,21 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
                     "gtip": gtip,
                 })
 
+        if missing_xml_refs:
+            missing_list = sorted(missing_xml_refs)
+            message = (
+                f"{len(missing_list)} dövizli fatura için XML gerekiyor: "
+                f"{', '.join(missing_list)}"
+            )
+            return "pending", None, message, missing_list
+
         if not output_rows:
-            return "error", None, "Özet dosyasındaki referanslar için Detay dosyasında eşleşen kayıt bulunamadı."
+            return (
+                "error",
+                None,
+                "Özet dosyasındaki referanslar için Detay dosyasında eşleşen kayıt bulunamadı.",
+                [],
+            )
 
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"ihrac_kayitli_sonuc_{uuid.uuid4().hex[:8]}.xlsx")
@@ -148,14 +197,134 @@ def process_ihrac_kayitli(detay_path: str, ozet_path: str, output_dir: str) -> t
         if extra_refs:
             warnings.append(f"Detay'da olup Özet'te bulunmayan referans: {', '.join(extra_refs)}")
         message = f"Tamamlandı. {len(output_rows)} satır oluşturuldu."
-        if foreign_currency_rows:
-            message = f"{message} {foreign_currency_rows} dövizli satırda K ve L boş bırakıldı."
+        if xml_filled_rows:
+            message = f"{message} {xml_filled_rows} dövizli satır XML'den TL olarak dolduruldu."
         if warnings:
-            return "partial", output_path, f"{message} {' | '.join(warnings)}"
-        return "success", output_path, message
+            return "partial", output_path, f"{message} {' | '.join(warnings)}", []
+        return "success", output_path, message, []
 
     except Exception as exc:
-        return "error", None, f"Hata oluştu: {exc}"
+        return "error", None, f"Hata oluştu: {exc}", []
+
+
+def _read_invoice_xmls(paths: list[str]) -> dict:
+    invoices = {}
+    for path in paths:
+        invoice = _read_invoice_xml(path)
+        reference_key = _normalize_reference(invoice["reference"])
+        if reference_key in invoices:
+            raise ValueError(f"{invoice['reference']}: Aynı fatura için birden fazla XML yüklendi.")
+        invoices[reference_key] = invoice
+    return invoices
+
+
+def _read_invoice_xml(path: str) -> dict:
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        raise ValueError(f"{Path(path).name}: XML okunamadı ({exc}).") from exc
+
+    if _local_name(root.tag) != "Invoice":
+        raise ValueError(f"{Path(path).name}: Dosya bir UBL fatura XML'i değil.")
+
+    reference = _direct_child_text(root, "ID")
+    currency = _direct_child_text(root, "DocumentCurrencyCode").upper()
+    if not reference or not currency:
+        raise ValueError(f"{Path(path).name}: Fatura numarası veya para birimi bulunamadı.")
+
+    tax_base_node = _descendant_in(root, "LegalMonetaryTotal", "TaxExclusiveAmount")
+    tax_amount_node = _descendant_in(root, "TaxTotal", "TaxAmount")
+    if tax_base_node is None or tax_amount_node is None:
+        raise ValueError(f"{reference}: XML'de matrah veya KDV toplamı bulunamadı.")
+
+    tax_base_currency = tax_base_node.attrib.get("currencyID", "").upper()
+    tax_currency = tax_amount_node.attrib.get("currencyID", "").upper()
+    if tax_base_currency and tax_base_currency != currency:
+        raise ValueError(f"{reference}: XML matrah para birimi fatura para birimiyle uyuşmuyor.")
+    if tax_currency and tax_currency != currency:
+        raise ValueError(f"{reference}: XML KDV para birimi fatura para birimiyle uyuşmuyor.")
+
+    if currency == "TRY":
+        exchange_rate = Decimal("1")
+    else:
+        exchange_rate = _find_try_exchange_rate(root, currency, reference)
+
+    return {
+        "reference": reference,
+        "currency": currency,
+        "exchange_rate": exchange_rate,
+        "tax_base": _xml_decimal(tax_base_node.text, reference, "matrah"),
+        "tax_amount": _xml_decimal(tax_amount_node.text, reference, "KDV"),
+    }
+
+
+def _find_try_exchange_rate(root, currency: str, reference: str) -> Decimal:
+    for element in root.iter():
+        if _local_name(element.tag) not in {
+            "PaymentExchangeRate",
+            "PricingExchangeRate",
+            "TaxExchangeRate",
+        }:
+            continue
+        source = _direct_child_text(element, "SourceCurrencyCode").upper()
+        target = _direct_child_text(element, "TargetCurrencyCode").upper()
+        rate_text = _direct_child_text(element, "CalculationRate")
+        if source == currency and target == "TRY" and rate_text:
+            return _xml_decimal(rate_text, reference, "döviz kuru")
+    raise ValueError(f"{reference}: XML'de {currency}→TRY döviz kuru bulunamadı.")
+
+
+def _allocate_total(
+    total: Decimal,
+    weights: list[Decimal],
+    reference: str,
+    field_name: str,
+) -> list[Decimal]:
+    weight_total = sum(weights, Decimal("0"))
+    if weight_total <= 0:
+        raise ValueError(f"{reference}: {field_name} GTİP satırlarına bölüştürülemiyor.")
+
+    allocated = [
+        _round_two(total * weight / weight_total)
+        for weight in weights
+    ]
+    difference = total - sum(allocated, Decimal("0"))
+    if difference:
+        largest_index = max(range(len(weights)), key=lambda index: weights[index])
+        allocated[largest_index] += difference
+    return allocated
+
+
+def _descendant_in(root, parent_name: str, child_name: str):
+    for parent in root.iter():
+        if _local_name(parent.tag) != parent_name:
+            continue
+        for child in list(parent):
+            if _local_name(child.tag) == child_name:
+                return child
+    return None
+
+
+def _direct_child_text(element, child_name: str) -> str:
+    for child in list(element):
+        if _local_name(child.tag) == child_name:
+            return (child.text or "").strip()
+    return ""
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml_decimal(value, reference: str, field_name: str) -> Decimal:
+    try:
+        return Decimal(str(value).strip())
+    except (InvalidOperation, AttributeError) as exc:
+        raise ValueError(f"{reference}: XML {field_name} değeri sayısal değil.") from exc
+
+
+def _normalize_reference(value) -> str:
+    return _clean_text(value).replace(" ", "").upper()
 
 
 def _read_summary_rows(path: str) -> list:
