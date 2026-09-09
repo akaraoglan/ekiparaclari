@@ -16,7 +16,11 @@ from openpyxl.utils import get_column_letter
 
 _OCR_ENGINE = None
 _OCR_LOCK = threading.Lock()
-_MONEY_RE = re.compile(r"(?<!\d)[0-9O]+(?:[.,'][0-9O]+)+(?!\d)", re.IGNORECASE)
+_MONEY_RE = re.compile(r"(?<!\d)[0-9O]+(?:[.,'/][0-9O]+)+(?!\d)", re.IGNORECASE)
+_STANDARD_TR_MONEY_RE = re.compile(
+    r"[0-9O]{1,3}(?:\.[0-9O]{3})*,[0-9O]{2}|[0-9O]+,[0-9O]{2}",
+    re.IGNORECASE,
+)
 _EXCEL_COLUMNS = [
     ("gross", "Brüt Ücret (YK Dahil)"),
     ("income", "Gelir Vergisi (İşçi)"),
@@ -92,16 +96,38 @@ def _parse_money(text: str) -> Decimal | None:
         if not set(candidate) - {"0", ".", ",", "'"}:
             return Decimal("0")
         separator_index = max(
-            candidate.rfind("."), candidate.rfind(","), candidate.rfind("'")
+            candidate.rfind("."),
+            candidate.rfind(","),
+            candidate.rfind("'"),
+            candidate.rfind("/"),
         )
         decimals = candidate[separator_index + 1:]
         if len(decimals) != 2:
             continue
-        integer_part = re.sub(r"[.,']", "", candidate[:separator_index])
+        integer_part = re.sub(r"[.,'/]", "", candidate[:separator_index])
         try:
             return Decimal(f"{integer_part}.{decimals}")
         except InvalidOperation:
             continue
+    return None
+
+
+def _parse_upside_down_money(text: str) -> Decimal | None:
+    compact = re.sub(r"[^0-9O.,'/]", "", text.upper().replace("O", "0"))
+    if not compact:
+        return None
+    source_variants = [compact[1:], compact] if compact.startswith("1") else [compact]
+    for source in source_variants:
+        rotated = source[::-1].translate(str.maketrans({"6": "9", "9": "6"}))
+        parsed = _parse_money(rotated)
+        if parsed is not None:
+            return parsed
+        digits = re.sub(r"\D", "", rotated)
+        if len(digits) >= 3:
+            try:
+                return Decimal(f"{digits[:-2]}.{digits[-2:]}")
+            except InvalidOperation:
+                continue
     return None
 
 
@@ -230,6 +256,61 @@ def _regional_amounts(
     ]
 
 
+def _money_text_needs_reread(text: str, amount: Decimal) -> str | None:
+    if amount == 0:
+        return None
+    compact = text.replace(" ", "").upper().replace("O", "0")
+    if re.fullmatch(r"0\.\d{3},\d{2}", compact):
+        return "missing_leading_digit"
+    if _STANDARD_TR_MONEY_RE.fullmatch(compact):
+        return None
+    return "noisy"
+
+
+def _reread_money_with_consensus(
+    page,
+    item: TextBox,
+    amount: Decimal,
+    base_scale: float,
+) -> Decimal:
+    reread_kind = _money_text_needs_reread(item.text, amount)
+    if reread_kind is None:
+        return amount
+
+    if reread_kind == "missing_leading_digit":
+        variants = ((1.0, 2.8), (1.0, 3.2))
+    else:
+        variants = ((5.0, 3.0), (9.0, 5.0))
+
+    original_y0 = item.y0 / base_scale
+    original_y1 = item.y1 / base_scale
+    original_center_y = item.center_y / base_scale
+    readings: list[Decimal] = []
+    for padding, scale in variants:
+        clip = fitz.Rect(
+            page.rect.width * 0.68,
+            max(0, original_y0 - padding),
+            page.rect.width,
+            min(page.rect.height, original_y1 + padding),
+        )
+        reread_boxes = _ocr_region_boxes(page, clip, scale)
+        candidates = []
+        for reread_box in reread_boxes:
+            reread_amount = _parse_money(reread_box.text)
+            if reread_amount is None:
+                continue
+            distance = abs(reread_box.center_y / scale - original_center_y)
+            candidates.append((distance, reread_amount))
+        if candidates:
+            readings.append(min(candidates, key=lambda pair: pair[0])[1])
+
+    if len(readings) == len(variants) and len(set(readings)) == 1:
+        return readings[0]
+    raise ValueError(
+        f"Şüpheli tutar ({item.text}) iki görüntü okumasında doğrulanamadı."
+    )
+
+
 def _find_section_y(
     lines: list[list[TextBox]],
     label: str,
@@ -303,9 +384,13 @@ def _find_worker_x(lines: list[list[TextBox]], width: float) -> float:
 
 
 def _find_employer_x(lines: list[list[TextBox]], width: float) -> float:
+    page_bottom = max(box.center_y for row in lines for box in row)
     for line in lines:
         for item in line:
-            if "isveren" in _plain(item.text).replace("1", "i"):
+            if (
+                item.center_y < page_bottom * 0.25
+                and "isveren" in _plain(item.text).replace("1", "i")
+            ):
                 return item.center_x
     return width * 0.92
 
@@ -325,7 +410,12 @@ def _deduction_row_amount(
             item for item in line
             if width * 0.43 <= item.center_x <= width * 0.61
         ]
-        if not any(_plain(item.text) == wanted for item in label_items):
+        label_text = _plain(" ".join(item.text for item in label_items))
+        if " " in wanted:
+            label_matches = label_text.endswith(wanted)
+        else:
+            label_matches = any(_plain(item.text) == wanted for item in label_items)
+        if not label_matches:
             continue
         amounts = _regional_amounts(line, width, 0.68, 0.99)
         if amounts:
@@ -444,7 +534,12 @@ def _extract_gross_amount(
 
 
 def _extract_additional_values(
-    lines: list[list[TextBox]], width: float, height: float
+    lines: list[list[TextBox]],
+    width: float,
+    height: float,
+    yk_fee: Decimal = Decimal("0"),
+    page=None,
+    ocr_scale: float = 1.0,
 ) -> dict[str, Decimal]:
     gross_header_x = width * 0.40
     for line in lines:
@@ -489,21 +584,33 @@ def _extract_additional_values(
     worker_unemployment = _deduction_row_amount(
         lines, "issizlik", worker_x, width, height
     )
-    employer_sgk = _deduction_row_amount(lines, "sgk", employer_x, width, height)
-    employer_sgdp = _deduction_row_amount(lines, "sgdp", employer_x, width, height)
     employer_unemployment = _deduction_row_amount(
         lines, "issizlik", employer_x, width, height
+    )
+    employer_extra_unemployment = _deduction_row_amount(
+        lines, "ek issizlik", employer_x, width, height
     )
     contribution_values = [
         worker_sgk,
         worker_sgdp,
         worker_unemployment,
-        employer_sgk,
-        employer_sgdp,
         employer_unemployment,
+        employer_extra_unemployment,
     ]
     if any(value is None for value in contribution_values):
         raise ValueError("İşçi veya işveren SGK/işsizlik tutarları okunamadı.")
+
+    employer_legal_total = _named_amount(
+        lines,
+        "yasal kesintiler toplami",
+        width,
+        (0.43, 0.78),
+        (0.84, 0.99),
+        0,
+        height * 0.35,
+    )
+    if employer_legal_total is None:
+        raise ValueError("İşveren yasal kesintiler toplamı okunamadı.")
 
     special_y = _find_section_y(lines, "ozel kesintiler", width, 0.43, 0.99)
     tax_discount_y = _find_section_y(lines, "vergi indirimi", width, 0.43, 0.99)
@@ -589,28 +696,70 @@ def _extract_additional_values(
     if None in (income_tax_incentive, stamp_tax_incentive, net_paid, employer_cost):
         raise ValueError("Vergi teşvikleri, net ödenen veya işveren maliyeti okunamadı.")
 
+    automatic_bes = _named_amount(
+        lines,
+        "otomatik",
+        width,
+        (0.43, 0.78),
+        (0.78, 0.99),
+        employer_cost_y,
+        height,
+    )
+    if automatic_bes is None:
+        for line in lines:
+            if not employer_cost_y < _line_y(line) < height:
+                continue
+            if not _text_matches(
+                _regional_text(line, width, 0.43, 0.78), "otomatik"
+            ):
+                continue
+            rotated_candidates = [
+                value
+                for item in line
+                if width * 0.78 <= item.center_x <= width * 0.99
+                and (value := _parse_upside_down_money(item.text)) is not None
+            ]
+            if rotated_candidates:
+                automatic_bes = rotated_candidates[-1]
+                break
+    if automatic_bes is None:
+        raise ValueError("Otomatik BES kesintisi okunamadı.")
+
     incentives_total = Decimal("0")
     for line in lines:
         if not incentives_y < _line_y(line) < employer_cost_y:
             continue
-        incentives_total += sum(
-            (amount for _, amount in _regional_amounts(line, width, 0.78, 0.99)),
-            Decimal("0"),
-        )
+        for item in line:
+            if not width * 0.78 <= item.center_x <= width * 0.99:
+                continue
+            amount = _parse_money(item.text)
+            if amount is None:
+                continue
+            if page is not None:
+                amount = _reread_money_with_consensus(
+                    page, item, amount, ocr_scale
+                )
+            incentives_total += amount
 
     return {
         "overtime_total": overtime_total,
         "bonus": bonus,
-        "other_extra_payments": extra_total - bonus,
+        "other_extra_payments": extra_total - bonus - yk_fee,
         "worker_sgk": worker_sgk + worker_sgdp,
         "worker_unemployment": worker_unemployment,
-        "employer_sgk": employer_sgk + employer_sgdp,
-        "employer_unemployment": employer_unemployment,
+        "employer_sgk": (
+            employer_legal_total
+            - employer_unemployment
+            - employer_extra_unemployment
+        ),
+        "employer_unemployment": employer_unemployment + employer_extra_unemployment,
         "income_tax_incentive": income_tax_incentive,
         "stamp_tax_incentive": stamp_tax_incentive,
         "advance": advance,
         "other_advances": other_advances,
-        "account_369_deductions": special_total - advance - other_advances,
+        "account_369_deductions": (
+            special_total - advance - other_advances + automatic_bes
+        ),
         "net_paid": net_paid,
         "incentives_total": incentives_total,
         "employer_cost": employer_cost,
@@ -624,12 +773,21 @@ def extract_page_values(page) -> dict[str, Decimal]:
         boxes = native
         width = float(page.rect.width)
         height = float(page.rect.height)
+        ocr_scale = 1.0
     else:
-        boxes, width, height = _ocr_boxes(page)
+        ocr_scale = 2.0
+        boxes, width, height = _ocr_boxes(page, scale=ocr_scale)
 
     lines = _group_lines(boxes, height)
     gross, yk_fee = _extract_gross_amount(lines, width, height)
-    values = _extract_additional_values(lines, width, height)
+    values = _extract_additional_values(
+        lines,
+        width,
+        height,
+        yk_fee=yk_fee,
+        page=page,
+        ocr_scale=ocr_scale,
+    )
     worker_x = _find_worker_x(lines, width)
     income = _amount_on_named_line(lines, "gelir vergisi", worker_x, width)
     stamp = _amount_on_named_line(lines, "damga vergisi", worker_x, width)
