@@ -8,6 +8,7 @@ DATE_RE = re.compile(r'\d{2}\.\d{2}\.\d{4}')
 
 YELLOW     = (1.0, 1.0, 0.0)
 LIGHT_BLUE = (0.53, 0.81, 0.98)
+LIGHT_RED  = (1.0, 0.60, 0.60)
 OPACITY    = 0.38
 TRANSACTION_NAME = "Gümrük Vergi Tahsilatı"
 
@@ -50,10 +51,12 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str, output_dir: str
     Paint Gümrük Vergi Tahsilatı rows:
       - IM beyanname → yellow
       - EX beyanname → light blue
-    Returns dict with output_path, out_filename, extracted_date, im_count, ex_count.
+      - Missing or unrecognized beyanname type → light red
+    Returns dict with output_path, out_filename, extracted_date, im_count,
+    ex_count and other_count.
     """
     doc = fitz.open(input_path)
-    im_count = ex_count = 0
+    im_count = ex_count = other_count = 0
     extracted_date = None
 
     for page in doc:
@@ -64,27 +67,32 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str, output_dir: str
 
         shape = page.new_shape()
 
-        for hit in hits:
-            # Extract description text clipped below the hit
-            clip = fitz.Rect(0, hit.y1 - 2, pw, hit.y1 + 80)
+        for index, hit in enumerate(hits):
+            next_hit = hits[index + 1] if index + 1 < len(hits) else None
+            y_bottom = _desc_bottom(page, hit.y1, pw)
+            if next_hit:
+                y_bottom = min(y_bottom, next_hit.y0 - 2)
+
+            # Limit classification to the current transaction. Otherwise a
+            # following row's declaration code could classify this row.
+            clip = fitz.Rect(0, hit.y1 - 2, pw, y_bottom + 2)
             desc_text = page.get_text("text", clip=clip)
 
             if not extracted_date:
                 extracted_date = _extract_transaction_date(desc_text)
 
             m = BEYANNAME_RE.search(desc_text)
-            if not m:
-                continue
-
-            code = m.group(1).upper()
+            code = m.group(1).upper() if m else None
             if code in ("IM", "AN"):
                 fill = YELLOW
                 im_count += 1
-            else:
+            elif code == "EX":
                 fill = LIGHT_BLUE
                 ex_count += 1
+            else:
+                fill = LIGHT_RED
+                other_count += 1
 
-            y_bottom = _desc_bottom(page, hit.y1, pw)
             rect = fitz.Rect(8, hit.y0 - 1, pw - 8, y_bottom + 2)
             shape.draw_rect(rect)
             shape.finish(color=None, fill=fill, fill_opacity=OPACITY)
@@ -104,4 +112,5 @@ def paint_vakifbank_pdf(input_path: str, original_filename: str, output_dir: str
         "extracted_date": extracted_date,
         "im_count": im_count,
         "ex_count": ex_count,
+        "other_count": other_count,
     }

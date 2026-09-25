@@ -414,7 +414,9 @@ def ekstre_boyama():
 
             flash(
                 f"Tamamlandı: {result['im_count']} ithalat (sarı), "
-                f"{result['ex_count']} ihracat (mavi) satırı boyandı.",
+                f"{result['ex_count']} ihracat (mavi), "
+                f"{result['other_count']} türü belirlenemeyen (açık kırmızı) "
+                "satır boyandı.",
                 "success"
             )
 
