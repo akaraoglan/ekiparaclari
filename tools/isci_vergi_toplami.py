@@ -42,6 +42,77 @@ _EXCEL_COLUMNS = [
     ("employer_cost", "İşveren Maliyeti (Teşvikli)"),
 ]
 
+_EXTRA_PAYMENT_LABELS = (
+    (
+        "cocuk_parasi",
+        "Çocuk Parası",
+        ("cocuk parasi", "ocuk parasi"),
+        (),
+    ),
+    (
+        "dogum_yardimi",
+        "Doğum Yardımı",
+        ("dogum yardimi", "do um yardimi"),
+        (),
+    ),
+    (
+        "olum_yardimi",
+        "Ölüm Yardımı",
+        ("olum yardimi", "l m yardimi"),
+        (),
+    ),
+    ("evlenme_yardimi", "Evlenme Yardımı", ("evlenme yardimi",), ()),
+    (
+        "diger_ek_gelir",
+        "Diğer Ek Gelir",
+        ("diger ek gelir", "di er ek gelir"),
+        (),
+    ),
+    (
+        "sgk_istirahat_odemesi",
+        "SGK İstirahat Ödemesi",
+        (
+            "sgk istirahat odemesi",
+            "sgk stirahat odemesi",
+            "sgk istirahat demesi",
+            "sgk stirahat demesi",
+        ),
+        (),
+    ),
+    (
+        "yillik_izin_ucreti",
+        "Yıllık İzin Ücreti",
+        (
+            "yillik izin ucreti",
+            "yillik zin ucreti",
+            "yillik izin creti",
+            "yillik zin creti",
+        ),
+        (),
+    ),
+    (
+        "yillik_izin_harcligi",
+        "Yıllık İzin Harçlığı",
+        (
+            "yillik izin harcligi",
+            "yillik zin harcligi",
+            "yillik izin har li",
+            "yillik zin har li",
+        ),
+        (),
+    ),
+    ("ikramiye", "İkramiye", ("ikramiye", "kramiye"), ()),
+    ("prim", "Prim", ("prim",), ()),
+    ("kira_yardimi", "Kira Yardımı", ("kira yardimi",), ()),
+    (
+        "yakacak_yardimi",
+        "Yakacak Yardımı",
+        ("yakacak yardimi", "yakacak yardimi nakdi", "yakacak yard mi"),
+        ("a ik yardimi na", "ik yardimi na"),
+    ),
+    ("yk_ucreti", "YK Ücreti", ("yk ucreti", "yk creti"), ()),
+)
+
 
 @dataclass(frozen=True)
 class TextBox:
@@ -50,6 +121,7 @@ class TextBox:
     y0: float
     x1: float
     y1: float
+    confidence: float = 1.0
 
     @property
     def center_x(self) -> float:
@@ -191,10 +263,25 @@ def _ocr_region_boxes(page, clip: fitz.Rect, scale: float) -> list[TextBox]:
 
     boxes = []
     if result.boxes is not None:
-        for points, text in zip(result.boxes, result.txts):
+        result_scores = getattr(result, "scores", None)
+        scores = (
+            result_scores
+            if result_scores is not None
+            else [0.0] * len(result.txts)
+        )
+        for points, text, score in zip(result.boxes, result.txts, scores):
             xs = [float(point[0]) + offset_x for point in points]
             ys = [float(point[1]) + offset_y for point in points]
-            boxes.append(TextBox(str(text), min(xs), min(ys), max(xs), max(ys)))
+            boxes.append(
+                TextBox(
+                    str(text),
+                    min(xs),
+                    min(ys),
+                    max(xs),
+                    max(ys),
+                    float(score),
+                )
+            )
     return boxes
 
 
@@ -335,6 +422,7 @@ def _named_amount(
     amount_x: tuple[float, float],
     y_min: float = 0,
     y_max: float = float("inf"),
+    allow_next_line: bool = False,
 ) -> Decimal | None:
     for line in lines:
         line_y = _line_y(line)
@@ -346,6 +434,31 @@ def _named_amount(
         amounts = _regional_amounts(line, width, *amount_x)
         if amounts:
             return max(amounts, key=lambda pair: pair[0])[1]
+        if allow_next_line:
+            box_heights = [
+                item.y1 - item.y0
+                for candidate_line in lines
+                for item in candidate_line
+            ]
+            max_distance = max(
+                8.0,
+                (median(box_heights) if box_heights else 8.0) * 2.8,
+            )
+            nearby_lines = sorted(
+                (
+                    candidate_line
+                    for candidate_line in lines
+                    if 0 < _line_y(candidate_line) - line_y <= max_distance
+                    and _line_y(candidate_line) < y_max
+                ),
+                key=_line_y,
+            )
+            for nearby_line in nearby_lines:
+                nearby_amounts = _regional_amounts(
+                    nearby_line, width, *amount_x
+                )
+                if nearby_amounts:
+                    return max(nearby_amounts, key=lambda pair: pair[0])[1]
     return None
 
 
@@ -362,7 +475,9 @@ def _section_total(
         line_y = _line_y(line)
         if not y_min < line_y < y_max:
             continue
-        if "toplam" not in _plain(_regional_text(line, width, *label_x)):
+        if not _text_matches(
+            _regional_text(line, width, *label_x), "toplam"
+        ):
             continue
         amounts = _regional_amounts(line, width, *amount_x)
         if not amounts:
@@ -371,6 +486,233 @@ def _section_total(
             return max(amounts, key=lambda pair: pair[0])[1]
         return min(amounts, key=lambda pair: abs(pair[0] - target_x))[1]
     return None
+
+
+def _extra_label_match_score(normalized: str, alias: str) -> float:
+    if normalized == alias:
+        return 1.0
+    if len(normalized) >= 4 and len(alias) >= 4:
+        if alias in normalized:
+            return 0.96
+        if normalized in alias and len(normalized) / len(alias) >= 0.70:
+            return 0.92
+    return SequenceMatcher(None, normalized, alias).ratio()
+
+
+def _canonical_extra_payment_label(
+    raw_label: str,
+    confidence: float = 1.0,
+) -> tuple[str, str, bool, str | None, float]:
+    normalized = _plain(raw_label)
+    best_match = None
+    best_score = 0.0
+    best_reliable = True
+
+    for key, header, aliases, uncertain_aliases in _EXTRA_PAYMENT_LABELS:
+        for alias in aliases:
+            score = _extra_label_match_score(normalized, alias)
+            if score > best_score:
+                best_match = (key, header)
+                best_score = score
+                best_reliable = True
+        for alias in uncertain_aliases:
+            score = _extra_label_match_score(normalized, alias)
+            if score > best_score:
+                best_match = (key, header)
+                best_score = score
+                best_reliable = False
+
+    if best_match is not None and best_score >= 0.74:
+        key, header = best_match
+        estimated = not best_reliable or best_score < 0.88 or confidence < 0.55
+        reason = None
+        if not best_reliable:
+            reason = (
+                "Başlığın bir bölümü okunamadı; diğer bordro "
+                "satırlarıyla eşleştirildi."
+            )
+        elif best_score < 0.88:
+            reason = "Başlık benzerliğe göre eşleştirildi."
+        elif confidence < 0.55:
+            reason = "Başlığın OCR güveni düşük."
+        return key, header, estimated, reason, best_score
+
+    display = re.sub(r"\s+", " ", raw_label).strip(" :-")
+    display = display.replace("�", "").strip()
+    display = re.sub(r"\s*\(\s*(?:na)?\s*$", "", display, flags=re.IGNORECASE)
+    if not display:
+        display = "Ek Ödeme"
+    slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_") or "belirsiz"
+    estimated = "�" in raw_label or confidence < 0.55 or len(normalized) < 3
+    reason = "Başlık eksik veya düşük güvenle okundu." if estimated else None
+    return f"ocr_{slug}", display, estimated, reason, 1.0
+
+
+def _find_extra_payment_total(
+    lines: list[list[TextBox]],
+    width: float,
+    y_min: float,
+    y_max: float,
+    target_x: float,
+) -> tuple[float, Decimal] | None:
+    for line in lines:
+        line_y = _line_y(line)
+        if not y_min < line_y < y_max:
+            continue
+        label = _regional_text(line, width, 0.00, 0.20)
+        if not _text_matches(label, "toplam"):
+            continue
+        amounts = _regional_amounts(line, width, 0.28, 0.50)
+        if amounts:
+            amount = min(amounts, key=lambda pair: abs(pair[0] - target_x))[1]
+            return line_y, amount
+    return None
+
+
+def _reread_extra_payment_label(
+    page,
+    line: list[TextBox],
+    base_scale: float,
+) -> tuple[str, float] | None:
+    if not line:
+        return None
+    original_y0 = min(item.y0 for item in line) / base_scale
+    original_y1 = max(item.y1 for item in line) / base_scale
+    original_center_y = _line_y(line) / base_scale
+    scale = 3.2
+    clip = fitz.Rect(
+        0,
+        max(0, original_y0 - 3.0),
+        page.rect.width * 0.31,
+        min(page.rect.height, original_y1 + 3.0),
+    )
+    reread_boxes = _ocr_region_boxes(page, clip, scale)
+    reread_lines = _group_lines(reread_boxes, page.rect.height * scale)
+    if not reread_lines:
+        return None
+    reread_line = min(
+        reread_lines,
+        key=lambda row: abs(_line_y(row) / scale - original_center_y),
+    )
+    text = _line_text(reread_line).strip()
+    if not text:
+        return None
+    confidence = median(item.confidence for item in reread_line)
+    return text, confidence
+
+
+def _extract_extra_payment_items(
+    lines: list[list[TextBox]],
+    width: float,
+    extra_y: float,
+    total_y: float,
+    page=None,
+    ocr_scale: float = 1.0,
+) -> tuple[dict[str, Decimal], dict[str, dict]]:
+    payments: dict[str, Decimal] = {}
+    metadata: dict[str, dict] = {}
+
+    for line in lines:
+        line_y = _line_y(line)
+        if not extra_y < line_y < total_y:
+            continue
+        amounts = _regional_amounts(line, width, 0.28, 0.50)
+        if not amounts:
+            continue
+        raw_label = _regional_text(line, width, 0.00, 0.30).strip()
+        if _text_matches(raw_label, "toplam"):
+            continue
+        label_items = [
+            item for item in line
+            if width * 0.00 <= item.center_x <= width * 0.30
+        ]
+        confidence = (
+            median(item.confidence for item in label_items)
+            if label_items
+            else 0.0
+        )
+        if not raw_label:
+            raw_label = f"Ek Ödeme {len(payments) + 1}"
+
+        key, header, estimated, reason, score = _canonical_extra_payment_label(
+            raw_label, confidence
+        )
+        if estimated and page is not None:
+            reread = _reread_extra_payment_label(page, line, ocr_scale)
+            if reread is not None:
+                reread_text, reread_confidence = reread
+                reread_result = _canonical_extra_payment_label(
+                    reread_text, reread_confidence
+                )
+                reread_key, _, reread_estimated, _, reread_score = reread_result
+                if (
+                    (reread_key == key and (
+                        not reread_estimated or reread_score > score + 0.05
+                    ))
+                    or (estimated and not reread_estimated)
+                ):
+                    key, header, estimated, reason, score = reread_result
+                    raw_label = reread_text
+
+        amount = max(amounts, key=lambda pair: pair[0])[1]
+        payments[key] = payments.get(key, Decimal("0")) + amount
+        current = metadata.get(key)
+        if current is None:
+            metadata[key] = {
+                "header": header,
+                "estimated": estimated,
+                "raw_label": raw_label,
+                "reason": reason,
+            }
+        else:
+            current["estimated"] = current["estimated"] or estimated
+            if estimated:
+                current["raw_label"] = raw_label
+                current["reason"] = reason or current.get("reason")
+
+    return payments, metadata
+
+
+def _reread_extra_payment_section(
+    page,
+    extra_y: float,
+    total_y: float,
+    base_scale: float,
+) -> tuple[dict[str, Decimal], dict[str, dict]] | None:
+    scale = 3.2
+    clip = fitz.Rect(
+        0,
+        max(0, extra_y / base_scale - 5.0),
+        page.rect.width * 0.52,
+        min(page.rect.height, total_y / base_scale + 5.0),
+    )
+    boxes = _ocr_region_boxes(page, clip, scale)
+    width = float(page.rect.width * scale)
+    height = float(page.rect.height * scale)
+    lines = _group_lines(boxes, height)
+    reread_extra_y = _find_section_y(
+        lines, "ek odemeler", width, 0.00, 0.48
+    )
+    if reread_extra_y is None:
+        return None
+    reread_total = _find_extra_payment_total(
+        lines,
+        width,
+        reread_extra_y,
+        height * 0.95,
+        width * 0.40,
+    )
+    if reread_total is None:
+        return None
+    reread_total_y, _ = reread_total
+    return _extract_extra_payment_items(
+        lines,
+        width,
+        reread_extra_y,
+        reread_total_y,
+        page=None,
+        ocr_scale=scale,
+    )
 
 
 def _find_worker_x(lines: list[list[TextBox]], width: float) -> float:
@@ -540,7 +882,7 @@ def _extract_additional_values(
     yk_fee: Decimal = Decimal("0"),
     page=None,
     ocr_scale: float = 1.0,
-) -> dict[str, Decimal]:
+) -> dict:
     gross_header_x = width * 0.40
     for line in lines:
         if (
@@ -555,14 +897,23 @@ def _extract_additional_values(
     overtime_y = _find_section_y(lines, "fazla mesailer", width, 0.00, 0.48)
     extra_y = _find_section_y(lines, "ek odemeler", width, 0.00, 0.48)
     gross_payments_y = _find_section_y(lines, "brut odemeler", width, 0.00, 0.48)
-    if overtime_y is None or extra_y is None or gross_payments_y is None:
+    if overtime_y is None or extra_y is None:
         raise ValueError("Fazla Mesailer veya Ek Ödemeler bölüm sınırları okunamadı.")
+
+    extra_search_end = gross_payments_y or height * 0.95
+    extra_total_info = _find_extra_payment_total(
+        lines,
+        width,
+        extra_y,
+        extra_search_end,
+        gross_header_x,
+    )
+    if extra_total_info is None:
+        raise ValueError("Ek Ödemeler toplamı okunamadı.")
+    extra_total_y, extra_total = extra_total_info
 
     overtime_total = _section_total(
         lines, width, overtime_y, extra_y, (0.00, 0.18), (0.28, 0.50), gross_header_x
-    )
-    extra_total = _section_total(
-        lines, width, extra_y, gross_payments_y, (0.00, 0.18), (0.28, 0.50), gross_header_x
     )
     bonus = _named_amount(
         lines,
@@ -571,11 +922,45 @@ def _extract_additional_values(
         (0.00, 0.28),
         (0.28, 0.50),
         extra_y,
-        gross_payments_y,
+        extra_total_y,
     )
     if overtime_total is None or extra_total is None:
         raise ValueError("Fazla Mesailer veya Ek Ödemeler toplamı okunamadı.")
     bonus = bonus if bonus is not None else Decimal("0")
+
+    extra_payments, extra_payment_meta = _extract_extra_payment_items(
+        lines,
+        width,
+        extra_y,
+        extra_total_y,
+        page=page,
+        ocr_scale=ocr_scale,
+    )
+    item_total = sum(extra_payments.values(), Decimal("0"))
+    extra_payment_warning = None
+    if (
+        abs(item_total - extra_total) > Decimal("0.01")
+        and page is not None
+    ):
+        reread = _reread_extra_payment_section(
+            page,
+            extra_y,
+            extra_total_y,
+            ocr_scale,
+        )
+        if reread is not None:
+            reread_payments, reread_metadata = reread
+            reread_total = sum(reread_payments.values(), Decimal("0"))
+            if abs(reread_total - extra_total) <= Decimal("0.01"):
+                extra_payments = reread_payments
+                extra_payment_meta = reread_metadata
+                item_total = reread_total
+    if abs(item_total - extra_total) > Decimal("0.01"):
+        extra_payment_warning = (
+            "Ek ödeme kalemleri toplamı "
+            f"{format_tr_money(item_total)} TL, bordrodaki Ek Ödemeler toplamı "
+            f"{format_tr_money(extra_total)} TL. Yeni detay sütunları kontrol edilmelidir."
+        )
 
     worker_x = _find_worker_x(lines, width)
     employer_x = _find_employer_x(lines, width)
@@ -692,6 +1077,7 @@ def _extract_additional_values(
         (0.78, 0.99),
         incentives_y,
         height,
+        allow_next_line=True,
     )
     if None in (income_tax_incentive, stamp_tax_incentive, net_paid, employer_cost):
         raise ValueError("Vergi teşvikleri, net ödenen veya işveren maliyeti okunamadı.")
@@ -745,6 +1131,9 @@ def _extract_additional_values(
         "overtime_total": overtime_total,
         "bonus": bonus,
         "other_extra_payments": extra_total - bonus - yk_fee,
+        "extra_payments": extra_payments,
+        "extra_payment_meta": extra_payment_meta,
+        "extra_payment_warning": extra_payment_warning,
         "worker_sgk": worker_sgk + worker_sgdp,
         "worker_unemployment": worker_unemployment,
         "employer_sgk": (
@@ -766,18 +1155,13 @@ def _extract_additional_values(
     }
 
 
-def extract_page_values(page) -> dict[str, Decimal]:
-    native = _native_boxes(page)
-    native_text = " ".join(item.text for item in native)
-    if "gelir" in _plain(native_text) and "damga" in _plain(native_text):
-        boxes = native
-        width = float(page.rect.width)
-        height = float(page.rect.height)
-        ocr_scale = 1.0
-    else:
-        ocr_scale = 2.0
-        boxes, width, height = _ocr_boxes(page, scale=ocr_scale)
-
+def _extract_page_values_from_boxes(
+    page,
+    boxes: list[TextBox],
+    width: float,
+    height: float,
+    ocr_scale: float,
+) -> dict:
     lines = _group_lines(boxes, height)
     gross, yk_fee = _extract_gross_amount(lines, width, height)
     values = _extract_additional_values(
@@ -813,10 +1197,75 @@ def extract_page_values(page) -> dict[str, Decimal]:
     return values
 
 
+def extract_page_values(page) -> dict:
+    native = _native_boxes(page)
+    native_text = " ".join(item.text for item in native)
+    native_has_structure = (
+        "gelir" in _plain(native_text)
+        and "damga" in _plain(native_text)
+        and "ek odemeler" in _plain(native_text)
+    )
+    last_error = None
+
+    if native_has_structure:
+        try:
+            return _extract_page_values_from_boxes(
+                page,
+                native,
+                float(page.rect.width),
+                float(page.rect.height),
+                1.0,
+            )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            last_error = exc
+
+    for ocr_scale in (2.0, 3.0):
+        try:
+            boxes, width, height = _ocr_boxes(page, scale=ocr_scale)
+            return _extract_page_values_from_boxes(
+                page,
+                boxes,
+                width,
+                height,
+                ocr_scale,
+            )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    raise ValueError("Bordro sayfasında okunabilir veri bulunamadı.")
+
+
+def _resolve_extra_payment_key(
+    key: str,
+    header: str,
+    columns: dict[str, dict],
+) -> tuple[str, bool]:
+    if key in columns or not key.startswith("ocr_"):
+        return key, False
+    normalized = _plain(header)
+    for existing_key, column in columns.items():
+        existing = _plain(column["header"])
+        if (
+            normalized
+            and existing
+            and SequenceMatcher(None, normalized, existing).ratio() >= 0.88
+        ):
+            return existing_key, True
+    return key, False
+
+
 def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
     rows = []
     warnings = []
     totals = {key: Decimal("0") for key, _ in _EXCEL_COLUMNS}
+    extra_payment_columns: dict[str, dict] = {}
+    extra_payment_totals: dict[str, Decimal] = {}
 
     for path, original_name in pdf_files:
         try:
@@ -834,13 +1283,70 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
                 except Exception as exc:
                     warnings.append(f"{original_name} - Sayfa {page_number}: {exc}")
                     continue
+                extra_payment_warning = values.pop("extra_payment_warning", None)
+                if extra_payment_warning:
+                    warnings.append(
+                        f"{original_name} - Sayfa {page_number}: "
+                        f"{extra_payment_warning}"
+                    )
                 for key in totals:
                     totals[key] += values[key]
+
+                page_payments = values.get("extra_payments", {})
+                page_metadata = values.get("extra_payment_meta", {})
+                resolved_payments: dict[str, Decimal] = {}
+                resolved_metadata: dict[str, dict] = {}
+                row_index = len(rows)
+                for key, amount in page_payments.items():
+                    metadata = dict(page_metadata.get(key, {}))
+                    header = metadata.get("header", key)
+                    resolved_key, inferred_merge = _resolve_extra_payment_key(
+                        key, header, extra_payment_columns
+                    )
+                    if inferred_merge:
+                        metadata["estimated"] = True
+                        metadata["reason"] = (
+                            metadata.get("reason")
+                            or "Başlık diğer sayfalardaki benzer ek ödeme adıyla eşleştirildi."
+                        )
+                    resolved_payments[resolved_key] = (
+                        resolved_payments.get(resolved_key, Decimal("0")) + amount
+                    )
+                    resolved_metadata[resolved_key] = metadata
+
+                    if resolved_key not in extra_payment_columns:
+                        extra_payment_columns[resolved_key] = {
+                            "key": resolved_key,
+                            "header": header,
+                            "estimated_sources": [],
+                        }
+                    column = extra_payment_columns[resolved_key]
+                    extra_payment_totals[resolved_key] = (
+                        extra_payment_totals.get(resolved_key, Decimal("0")) + amount
+                    )
+                    if metadata.get("estimated"):
+                        source = {
+                            "row_index": row_index,
+                            "filename": original_name,
+                            "page": page_number,
+                            "raw_label": metadata.get("raw_label", ""),
+                            "reason": metadata.get("reason") or "Başlık tahmini olarak eşleştirildi.",
+                        }
+                        column["estimated_sources"].append(source)
+                        warnings.append(
+                            f"{original_name} - Sayfa {page_number}: "
+                            f"'{source['raw_label']}' başlığı "
+                            f"'{column['header']}' olarak tahmin edildi. "
+                            f"{source['reason']}"
+                        )
+
                 row = {
                     "filename": original_name,
                     "page": page_number,
                 }
                 row.update(values)
+                row["extra_payments"] = resolved_payments
+                row["extra_payment_meta"] = resolved_metadata
                 rows.append(row)
         finally:
             document.close()
@@ -849,6 +1355,8 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
         "rows": rows,
         "warnings": warnings,
         "totals": totals,
+        "extra_payment_columns": list(extra_payment_columns.values()),
+        "extra_payment_totals": extra_payment_totals,
     }
     for key, value in totals.items():
         result[f"{key}_total"] = value
@@ -867,6 +1375,8 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
     light_blue = "EAF3F8"
     white = "FFFFFF"
     border_color = "B8C7D1"
+    estimated_fill = "F4CCCC"
+    estimated_font = "9C0006"
     thin_border = Border(
         left=Side(style="thin", color=border_color),
         right=Side(style="thin", color=border_color),
@@ -874,7 +1384,8 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
         bottom=Side(style="thin", color=border_color),
     )
 
-    last_column = 2 + len(_EXCEL_COLUMNS)
+    extra_columns = result.get("extra_payment_columns", [])
+    last_column = 2 + len(_EXCEL_COLUMNS) + len(extra_columns)
     last_column_letter = get_column_letter(last_column)
     sheet.merge_cells(f"A1:{last_column_letter}1")
     title = sheet["A1"]
@@ -885,7 +1396,24 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
     sheet.row_dimensions[1].height = 28
 
     header_row = 3
-    headers = ["Dosya", "Sayfa"] + [header for _, header in _EXCEL_COLUMNS]
+    first_data_row = header_row + 1
+    extra_headers = []
+    for extra_column in extra_columns:
+        excel_rows = sorted({
+            first_data_row + int(source["row_index"])
+            for source in extra_column.get("estimated_sources", [])
+        })
+        header = extra_column["header"]
+        if excel_rows:
+            row_label = "satırı" if len(excel_rows) == 1 else "satırları"
+            row_text = ", ".join(str(row) for row in excel_rows)
+            header = f"{header} (Tahmini - Excel {row_label}: {row_text})"
+        extra_headers.append(header)
+    headers = (
+        ["Dosya", "Sayfa"]
+        + [header for _, header in _EXCEL_COLUMNS]
+        + extra_headers
+    )
     for column, header in enumerate(headers, start=1):
         cell = sheet.cell(header_row, column, header)
         cell.fill = PatternFill("solid", fgColor=dark_blue)
@@ -893,11 +1421,25 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin_border
 
-    first_data_row = header_row + 1
+    extra_start_column = 3 + len(_EXCEL_COLUMNS)
+    for offset, extra_column in enumerate(extra_columns):
+        if not extra_column.get("estimated_sources"):
+            continue
+        cell = sheet.cell(header_row, extra_start_column + offset)
+        cell.fill = PatternFill("solid", fgColor=estimated_fill)
+        cell.font = Font(name="Arial", bold=True, color=estimated_font)
+
     for row_number, row in enumerate(result["rows"], start=first_data_row):
-        values = [row["filename"], row["page"]] + [
-            float(row[key]) for key, _ in _EXCEL_COLUMNS
-        ]
+        values = (
+            [row["filename"], row["page"]]
+            + [float(row[key]) for key, _ in _EXCEL_COLUMNS]
+            + [
+                float(row.get("extra_payments", {}).get(
+                    extra_column["key"], Decimal("0")
+                ))
+                for extra_column in extra_columns
+            ]
+        )
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row_number, column, value)
             cell.font = Font(name="Arial", size=10)
@@ -934,7 +1476,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
     sheet.auto_filter.ref = f"A{header_row}:{last_column_letter}{last_data_row}"
     sheet.freeze_panes = f"C{first_data_row}"
     sheet.row_dimensions[header_row].height = 42
-    widths = [36, 9] + [22] * len(_EXCEL_COLUMNS)
+    widths = [36, 9] + [22] * len(_EXCEL_COLUMNS) + [28] * len(extra_columns)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
     for cell in sheet[header_row]:
