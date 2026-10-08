@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from tools.isci_vergi_toplami import (
     TextBox,
     _EXCEL_COLUMNS,
+    _extract_employee_count,
     _canonical_extra_payment_label,
     _extract_extra_payment_items,
     _find_extra_payment_total,
@@ -18,6 +19,24 @@ from tools.isci_vergi_toplami import (
 
 
 class IsciVergiToplamiTest(unittest.TestCase):
+    def test_reads_employee_count_without_using_neighboring_counts(self):
+        lines = [[
+            TextBox("ÇALIŞAN SAYISI", 10, 60, 130, 70),
+            TextBox(":", 140, 60, 145, 70),
+            TextBox("21", 180, 60, 200, 70),
+            TextBox("İşe Giren : 7", 310, 60, 400, 70),
+        ]]
+        self.assertEqual(21, _extract_employee_count(lines, 1000, 1500))
+        self.assertEqual(1109, _extract_employee_count(
+            [[TextBox("ÇALIŞAN SAYISI : 1.109", 10, 60, 250, 70)]], 1000, 1500
+        ))
+        self.assertEqual(0, _extract_employee_count(
+            [[TextBox("CALISAN SAYISI : 0", 10, 60, 200, 70)]], 1000, 1500
+        ))
+        self.assertIsNone(_extract_employee_count(
+            [[TextBox("Kadın Sayısı : 8", 10, 60, 200, 70)]], 1000, 1500
+        ))
+
     def test_extracts_each_extra_payment_and_reconciles_total(self):
         lines = [
             self._line(200, "Çocuk Parası", "3.544,92"),
@@ -107,6 +126,7 @@ class IsciVergiToplamiTest(unittest.TestCase):
             row = {
                 "filename": "ornek.pdf",
                 "page": page,
+                "employee_count": 21 if page == 1 else None,
                 **{key: Decimal("1.00") for key, _ in _EXCEL_COLUMNS},
                 "extra_payments": {
                     "cocuk_parasi": Decimal("10.00") * page,
@@ -139,15 +159,22 @@ class IsciVergiToplamiTest(unittest.TestCase):
             workbook = load_workbook(output_path, data_only=False)
             try:
                 sheet = workbook["Vergi Toplamları"]
-                self.assertEqual("Brüt Ücret (YK Dahil)", sheet["C3"].value)
-                self.assertEqual("İşveren Maliyeti (Teşvikli)", sheet["T3"].value)
-                self.assertEqual("Çocuk Parası", sheet["U3"].value)
-                self.assertIn("Tahmini - Excel satırı: 5", sheet["V3"].value)
-                self.assertEqual("F4CCCC", sheet["V3"].fill.fgColor.rgb[-6:])
-                self.assertEqual(40.0, sheet["V5"].value)
-                self.assertEqual("n", sheet["V5"].data_type)
-                self.assertEqual("#,##0.00", sheet["V5"].number_format)
-                self.assertEqual("=SUM(V4:V5)", sheet["V6"].value)
+                self.assertEqual("Çalışan Sayısı", sheet["C3"].value)
+                self.assertEqual(21, sheet["C4"].value)
+                self.assertEqual("n", sheet["C4"].data_type)
+                self.assertEqual("#,##0", sheet["C4"].number_format)
+                self.assertIsNone(sheet["C5"].value)
+                self.assertEqual("=SUM(C4:C5)", sheet["C6"].value)
+                self.assertEqual("#,##0", sheet["C6"].number_format)
+                self.assertEqual("Brüt Ücret (YK Dahil)", sheet["D3"].value)
+                self.assertEqual("İşveren Maliyeti (Teşvikli)", sheet["U3"].value)
+                self.assertEqual("Çocuk Parası", sheet["V3"].value)
+                self.assertIn("Tahmini - Excel satırı: 5", sheet["W3"].value)
+                self.assertEqual("F4CCCC", sheet["W3"].fill.fgColor.rgb[-6:])
+                self.assertEqual(40.0, sheet["W5"].value)
+                self.assertEqual("n", sheet["W5"].data_type)
+                self.assertEqual("#,##0.00", sheet["W5"].number_format)
+                self.assertEqual("=SUM(W4:W5)", sheet["W6"].value)
                 self.assertIn("Uyarılar", workbook.sheetnames)
             finally:
                 workbook.close()

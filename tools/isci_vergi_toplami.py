@@ -1155,6 +1155,26 @@ def _extract_additional_values(
     }
 
 
+def _extract_employee_count(
+    lines: list[list[TextBox]], width: float, height: float
+) -> int | None:
+    for line in lines:
+        if _line_y(line) > height * 0.12:
+            continue
+        text = _regional_text(line, width, 0, 0.30).casefold().replace("ı", "i")
+        text = "".join(
+            char for char in unicodedata.normalize("NFKD", text)
+            if not unicodedata.combining(char)
+        )
+        match = re.search(
+            r"\bcalisan\s+sayisi\s*:?\s*(\d{1,3}(?:[.,]\d{3})+|\d+)(?![\d.,])",
+            text,
+        )
+        if match:
+            return int(re.sub(r"[.,]", "", match.group(1)))
+    return None
+
+
 def _extract_page_values_from_boxes(
     page,
     boxes: list[TextBox],
@@ -1189,11 +1209,27 @@ def _extract_page_values_from_boxes(
     if missing:
         raise ValueError(f"İşçi sütunundaki {' ve '.join(missing)} okunamadı.")
     values.update({
+        "employee_count": _extract_employee_count(lines, width, height),
         "gross": gross,
         "yk_fee": yk_fee,
         "income": income,
         "stamp": stamp,
     })
+    if values["employee_count"] is None:
+        # Retry only the header so count OCR does not change financial extraction.
+        try:
+            header_boxes = _ocr_region_boxes(
+                page,
+                fitz.Rect(0, 0, page.rect.width * 0.32, page.rect.height * 0.10),
+                3.0,
+            )
+            values["employee_count"] = _extract_employee_count(
+                _group_lines(header_boxes, page.rect.height * 3.0),
+                page.rect.width * 3.0,
+                page.rect.height * 3.0,
+            )
+        except (RuntimeError, ValueError):
+            pass
     return values
 
 
@@ -1284,6 +1320,11 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
                     warnings.append(f"{original_name} - Sayfa {page_number}: {exc}")
                     continue
                 extra_payment_warning = values.pop("extra_payment_warning", None)
+                if values.get("employee_count") is None:
+                    warnings.append(
+                        f"{original_name} - Sayfa {page_number}: "
+                        "Çalışan sayısı okunamadı; ilgili hücre boş bırakıldı."
+                    )
                 if extra_payment_warning:
                     warnings.append(
                         f"{original_name} - Sayfa {page_number}: "
@@ -1385,7 +1426,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
     )
 
     extra_columns = result.get("extra_payment_columns", [])
-    last_column = 2 + len(_EXCEL_COLUMNS) + len(extra_columns)
+    last_column = 3 + len(_EXCEL_COLUMNS) + len(extra_columns)
     last_column_letter = get_column_letter(last_column)
     sheet.merge_cells(f"A1:{last_column_letter}1")
     title = sheet["A1"]
@@ -1410,7 +1451,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
             header = f"{header} (Tahmini - Excel {row_label}: {row_text})"
         extra_headers.append(header)
     headers = (
-        ["Dosya", "Sayfa"]
+        ["Dosya", "Sayfa", "Çalışan Sayısı"]
         + [header for _, header in _EXCEL_COLUMNS]
         + extra_headers
     )
@@ -1421,7 +1462,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin_border
 
-    extra_start_column = 3 + len(_EXCEL_COLUMNS)
+    extra_start_column = 4 + len(_EXCEL_COLUMNS)
     for offset, extra_column in enumerate(extra_columns):
         if not extra_column.get("estimated_sources"):
             continue
@@ -1431,7 +1472,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
 
     for row_number, row in enumerate(result["rows"], start=first_data_row):
         values = (
-            [row["filename"], row["page"]]
+            [row["filename"], row["page"], row.get("employee_count")]
             + [float(row[key]) for key, _ in _EXCEL_COLUMNS]
             + [
                 float(row.get("extra_payments", {}).get(
@@ -1450,7 +1491,8 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
             )
             if row_number % 2 == 0:
                 cell.fill = PatternFill("solid", fgColor=light_blue)
-        for column in range(3, last_column + 1):
+        sheet.cell(row_number, 3).number_format = "#,##0"
+        for column in range(4, last_column + 1):
             sheet.cell(row_number, column).number_format = "#,##0.00"
 
     last_data_row = first_data_row + len(result["rows"]) - 1
@@ -1470,13 +1512,14 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
         cell.fill = PatternFill("solid", fgColor=medium_blue)
         cell.font = Font(name="Arial", size=11, bold=True, color=dark_blue)
         cell.border = thin_border
-    for column in range(3, last_column + 1):
+    sheet.cell(total_row, 3).number_format = "#,##0"
+    for column in range(4, last_column + 1):
         sheet.cell(total_row, column).number_format = "#,##0.00"
 
     sheet.auto_filter.ref = f"A{header_row}:{last_column_letter}{last_data_row}"
     sheet.freeze_panes = f"C{first_data_row}"
     sheet.row_dimensions[header_row].height = 42
-    widths = [36, 9] + [22] * len(_EXCEL_COLUMNS) + [28] * len(extra_columns)
+    widths = [36, 9, 18] + [22] * len(_EXCEL_COLUMNS) + [28] * len(extra_columns)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
     for cell in sheet[header_row]:
