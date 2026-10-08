@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: VPS'e Bağlan ve Güncellemeyi Yayınla
+      - name: VPS'e Baglan ve Guncellemeyi Yayinla
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
