@@ -2,12 +2,16 @@ import unittest
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import fitz
 from openpyxl import load_workbook
 
 from tools.isci_vergi_toplami import (
     TextBox,
+    OCRUnavailableError,
+    _native_boxes,
+    _ocr_banded_boxes,
     _EXCEL_COLUMNS,
     _extract_employee_count,
     _canonical_extra_payment_label,
@@ -186,6 +190,191 @@ class IsciVergiToplamiTest(unittest.TestCase):
             [2.0, 3.0],
             [call.kwargs["scale"] for call in ocr_boxes.call_args_list],
         )
+
+    def test_native_pdf_with_joined_section_title_reads_second_page_without_ocr(self):
+        output_root = Path(__file__).resolve().parents[1] / "outputs"
+        output_root.mkdir(parents=True, exist_ok=True)
+        pdf_path = output_root / "test_native_payroll.pdf"
+        excel_path = None
+        try:
+            with fitz.open() as doc:
+                self._add_payroll_page(doc, "Ek Odemeler")
+                self._add_payroll_page(doc, "EkOdemeler")
+                doc.save(pdf_path)
+            with patch("tools.isci_vergi_toplami._ocr_boxes") as ocr:
+                result = analyze_tax_pdfs([(str(pdf_path), "ornek.pdf")])
+                ocr.assert_not_called()
+            self.assertEqual([1, 2], [row["page"] for row in result["rows"]])
+            self.assertEqual([], result["failed_pages"])
+            self.assertEqual([], result["warnings"])
+            self.assertEqual(Decimal("2000.00"), result["gross_total"])
+            self.assertEqual(Decimal("200.00"), result["income_total"])
+            excel_path = create_tax_excel(result, str(output_root))
+            workbook = load_workbook(excel_path)
+            try:
+                sheet = workbook["Vergi Toplamları"]
+                self.assertEqual(2, sheet["B5"].value)
+                self.assertEqual(1000, sheet["D5"].value)
+                self.assertEqual("=SUM(D4:D5)", sheet["D6"].value)
+            finally:
+                workbook.close()
+        finally:
+            pdf_path.unlink(missing_ok=True)
+            if excel_path:
+                Path(excel_path).unlink(missing_ok=True)
+
+    def test_banded_ocr_recovers_after_full_page_reads_fail(self):
+        page = SimpleNamespace(rect=fitz.Rect(0, 0, 1000, 1500))
+        expected = {"gross": Decimal("123.45")}
+        with patch("tools.isci_vergi_toplami._native_boxes", return_value=[]), patch(
+            "tools.isci_vergi_toplami._ocr_boxes", return_value=([], 2000, 3000),
+        ), patch(
+            "tools.isci_vergi_toplami._ocr_banded_boxes", return_value=([], 3000, 4500),
+        ) as banded, patch(
+            "tools.isci_vergi_toplami._extract_page_values_from_boxes",
+            side_effect=[ValueError("native"), ValueError("2x"), ValueError("3x"), expected],
+        ):
+            self.assertIs(expected, extract_page_values(page))
+            banded.assert_called_once_with(page)
+
+    def test_bands_keep_overlap_rows_once_in_page_coordinates(self):
+        page = SimpleNamespace(rect=fitz.Rect(0, 0, 1000, 1000))
+        boxes = [TextBox(str(y), 10, y - 5, 30, y + 5) for y in (249, 250, 251, 500, 750)]
+        clips = []
+        def read_region(page, clip, scale):
+            clips.append(clip)
+            return [box for box in boxes if clip.y0 <= box.center_y <= clip.y1]
+        with patch("tools.isci_vergi_toplami._ocr_region_boxes", side_effect=read_region):
+            actual, width, height = _ocr_banded_boxes(page, scale=1.0)
+        self.assertEqual([box.text for box in boxes], [box.text for box in actual])
+        self.assertEqual((1000, 1000), (width, height))
+        self.assertGreater(clips[0].y1, clips[1].y0)
+
+    def test_page_inference_error_retries_but_missing_ocr_dependencies_abort(self):
+        page = SimpleNamespace(rect=fitz.Rect(0, 0, 1000, 1500))
+        expected = {"gross": Decimal("123.45")}
+        with patch("tools.isci_vergi_toplami._native_boxes", return_value=[]), patch(
+            "tools.isci_vergi_toplami._ocr_boxes",
+            side_effect=[RuntimeError("image failure"), ([], 3000, 4500)],
+        ), patch(
+            "tools.isci_vergi_toplami._extract_page_values_from_boxes",
+            side_effect=[ValueError("native"), expected],
+        ):
+            self.assertIs(expected, extract_page_values(page))
+        with patch("tools.isci_vergi_toplami._native_boxes", return_value=[]), patch(
+            "tools.isci_vergi_toplami._ocr_boxes", side_effect=OCRUnavailableError("missing model"),
+        ) as ocr:
+            with self.assertRaisesRegex(OCRUnavailableError, "missing model"):
+                extract_page_values(page)
+            self.assertEqual(1, ocr.call_count)
+
+    def test_all_reading_failures_are_reported_with_strategy_names(self):
+        page = SimpleNamespace(rect=fitz.Rect(0, 0, 1000, 1500))
+        with patch("tools.isci_vergi_toplami._native_boxes", return_value=[]), patch(
+            "tools.isci_vergi_toplami._ocr_boxes", return_value=([], 2000, 3000),
+        ), patch(
+            "tools.isci_vergi_toplami._ocr_banded_boxes", return_value=([], 3000, 4500),
+        ):
+            with self.assertRaises(ValueError) as failure:
+                extract_page_values(page)
+        for name in ("PDF metni", "Tam sayfa OCR (2x)", "Tam sayfa OCR (3x)", "Bölgesel OCR"):
+            self.assertIn(name, str(failure.exception))
+
+    def test_failed_second_page_is_visible_and_third_page_still_contributes(self):
+        output_root = Path(__file__).resolve().parents[1] / "outputs"
+        output_root.mkdir(parents=True, exist_ok=True)
+        pdf_path = output_root / "test_failed_payroll.pdf"
+        excel_path = None
+        try:
+            with fitz.open() as doc:
+                for _ in range(3):
+                    doc.new_page()
+                doc.save(pdf_path)
+            values = {key: Decimal("10.00") for key, _ in _EXCEL_COLUMNS}
+            values["employee_count"] = 1
+            with patch("tools.isci_vergi_toplami.extract_page_values", side_effect=[
+                dict(values), ValueError("Ek Ödemeler toplamı okunamadı"), dict(values),
+            ]):
+                result = analyze_tax_pdfs([(str(pdf_path), "ornek.pdf")])
+            self.assertEqual([1, 3], [row["page"] for row in result["rows"]])
+            self.assertEqual(2, result["failed_pages"][0]["page"])
+            self.assertEqual(Decimal("20.00"), result["gross_total"])
+            self.assertIn("toplamlar eksiktir", result["warnings"][0])
+            excel_path = create_tax_excel(result, str(output_root))
+            workbook = load_workbook(excel_path)
+            try:
+                sheet = workbook["Vergi Toplamları"]
+                self.assertIn("1 sayfa okunamadı", sheet["A2"].value)
+                self.assertEqual("OKUNAN SAYFALAR TOPLAMI", sheet["A6"].value)
+                self.assertIn("Sayfa 2", workbook["Uyarılar"]["A3"].value)
+            finally:
+                workbook.close()
+        finally:
+            pdf_path.unlink(missing_ok=True)
+            if excel_path:
+                Path(excel_path).unlink(missing_ok=True)
+
+    def test_rotated_native_payroll_reads_without_changing_original_page(self):
+        with fitz.open() as doc:
+            page = self._add_payroll_page(doc, "EkOdemeler")
+            page.set_rotation(90)
+            with patch("tools.isci_vergi_toplami._ocr_boxes") as ocr:
+                result = extract_page_values(page)
+                ocr.assert_not_called()
+            self.assertEqual(Decimal("1000.00"), result["gross"])
+            self.assertEqual(Decimal("100.00"), result["income"])
+            self.assertEqual(90, page.rotation)
+
+    def test_native_coordinates_match_rotated_page_rendering(self):
+        with fitz.open() as doc:
+            page = doc.new_page(width=600, height=900)
+            page.insert_text((50, 100), "Test", fontsize=10)
+            rect = fitz.Rect(page.get_text("words")[0][:4])
+            page.set_rotation(90)
+            box = _native_boxes(page)[0]
+            self.assertEqual(tuple(rect * page.rotation_matrix), (box.x0, box.y0, box.x1, box.y1))
+
+    @staticmethod
+    def _add_payroll_page(doc, extra_heading):
+        page = doc.new_page(width=1000, height=1500)
+        def put(x, y, text):
+            page.insert_text((x, y), text, fontsize=10)
+        def left(y, text, value=None):
+            put(10, y, text)
+            if value is not None:
+                put(370, y, value)
+        def right(y, text, worker=None, employer=None):
+            put(450, y, text)
+            if worker is not None:
+                put(790, y, worker)
+            if employer is not None:
+                put(910, y, employer)
+        left(60, "CALISAN SAYISI: 21")
+        left(100, "Calismalar")
+        put(370, 100, "Brut Tutar")
+        put(790, 100, "Isci")
+        put(910, 100, "Isveren")
+        for args in [
+            (300, "Toplam", "1.000,00"), (350, "Fazla Mesailer"),
+            (400, "Toplam", "50,00"), (450, extra_heading),
+            (500, "Bayram Yardimi", "100,00"), (540, "Yemek Yardimi", "200,00"),
+            (580, "Toplam", "300,00"), (620, "Brut Odemeler"),
+        ]:
+            left(*args)
+        for args in [
+            (150, "SGK", "140,00", "205,00"), (180, "SGDP", "0,00", "0,00"),
+            (210, "Issizlik", "10,00", "20,00"), (240, "Ek Issizlik", "0,00", "0,00"),
+            (270, "Gelir Vergisi", "100,00"), (300, "Damga Vergisi", "10,00"),
+            (330, "Yasal Kesintiler Toplami", None, "225,00"), (370, "Ozel Kesintiler"),
+            (400, "Avans", None, "50,00"), (430, "Toplam", None, "50,00"),
+            (470, "Vergi Indirimi"), (500, "Gelir Vergisi Indirimi", None, "20,00"),
+            (530, "Damga Vergisi Indirimi", None, "2,00"), (570, "Tesvikler"),
+            (600, "Tesvik A", None, "15,00"),
+            (650, "Isveren Maliyeti (Tesvikli)", None, "1.560,00"),
+            (700, "Net Odenen", None, "1.040,00"), (730, "Otomatik BES", None, "5,00"),
+        ]:
+            right(*args)
+        return page
 
     def test_excel_appends_dynamic_columns_and_keeps_amounts_numeric(self):
         rows = []
