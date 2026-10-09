@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
 import fitz
@@ -12,12 +12,15 @@ from tools.isci_vergi_toplami import (
     OCRUnavailableError,
     _native_boxes,
     _ocr_banded_boxes,
+    _deskew_page_image,
+    _run_rapidocr,
     _EXCEL_COLUMNS,
     _extract_employee_count,
     _canonical_extra_payment_label,
     _extract_extra_payment_items,
     _find_extra_payment_total,
     _named_amount,
+    _reread_named_amount,
     analyze_tax_pdfs,
     create_tax_excel,
     extract_page_values,
@@ -151,6 +154,94 @@ class IsciVergiToplamiTest(unittest.TestCase):
         )
 
         self.assertEqual((405.0, Decimal("377952.96")), result)
+
+    def test_total_cropped_at_scan_edge_is_recognized(self):
+        result = _find_extra_payment_total(
+            [self._line(400, "plam", "125,00")], 1000, 300, 500, 400,
+        )
+        self.assertEqual((405.0, Decimal("125.00")), result)
+        payments, _ = _extract_extra_payment_items([
+            self._line(200, "Prim", "100,00"),
+            self._line(240, "plam", "125,00"),
+        ], 1000, 150, 300)
+        self.assertEqual({"ocr_prim": Decimal("100.00")}, payments)
+
+    def test_low_confidence_heading_is_reread_without_category_guessing(self):
+        line = self._line(200, "Bayxm axdma", "100,00")
+        label = line[0]
+        line[0] = TextBox(label.text, label.x0, label.y0, label.x1, label.y1, 0.74)
+        with patch(
+            "tools.isci_vergi_toplami._reread_extra_payment_label",
+            return_value=("Bayram Yardımı", 0.96),
+        ):
+            payments, metadata = _extract_extra_payment_items(
+                [line], 1000, 150, 250, page=object(),
+            )
+        self.assertEqual({"ocr_bayram yardımı": Decimal("100.00")}, payments)
+        self.assertEqual("Bayram Yardımı", metadata["ocr_bayram yardımı"]["raw_label"])
+        self.assertFalse(metadata["ocr_bayram yardımı"]["estimated"])
+        _, header, review, _, _ = _canonical_extra_payment_label("Bayxm axdma", 0.74)
+        self.assertEqual("Bayxm axdma", header)
+        self.assertTrue(review)
+
+    def test_deskew_uses_measured_table_lines_and_preserves_image_edges(self):
+        import math
+        with fitz.open() as doc:
+            page = doc.new_page(width=600, height=900)
+            slope = math.tan(math.radians(2.0))
+            for y in range(100, 750, 80):
+                page.draw_line((30, y), (570, y + 540 * slope), color=(0, 0, 0), width=1)
+            correction = _deskew_page_image(page)
+            self.assertIsNotNone(correction)
+            png, width, height, angle = correction
+            self.assertAlmostEqual(2.0, angle, delta=0.2)
+            self.assertGreater(width, 600)
+            self.assertGreater(height, 900)
+            self.assertTrue(png.startswith(b"\x89PNG"))
+            self.assertEqual(fitz.Rect(0, 0, 600, 900), page.rect)
+            self.assertEqual(0, page.rotation)
+
+    def test_straight_or_blank_page_is_not_rotated(self):
+        with fitz.open() as doc:
+            page = doc.new_page(width=600, height=900)
+            self.assertIsNone(_deskew_page_image(page))
+            for y in range(100, 750, 80):
+                page.draw_line((30, y), (570, y), color=(0, 0, 0), width=1)
+            self.assertIsNone(_deskew_page_image(page))
+
+    def test_unreadable_money_is_accepted_only_when_two_crops_agree(self):
+        page = SimpleNamespace(rect=fitz.Rect(0, 0, 1000, 1500))
+        lines = [self._line(200, "Net Ödenen", "1x.2")]
+        # Put the required amount in the right-hand monetary column.
+        lines[0][0] = TextBox("Net Ödenen", 450, 200, 600, 210)
+        lines[0][1] = TextBox("1x.2", 850, 200, 950, 210, 0.4)
+        def box(text, confidence=0.99):
+            return [TextBox(text, 850, 200, 950, 210, confidence)]
+        for readings, expected in (
+            ([box("1.234,56"), box("1.234,56")], Decimal("1234.56")),
+            ([box("1.234,56"), box("1.234,57")], None),
+            ([box("1.234,56", 0.5)], None),
+            ([[TextBox("1.234,56", 850, 200, 950, 210), TextBox("99,00", 850, 215, 950, 225)]], None),
+        ):
+            with self.subTest(expected=expected), patch(
+                "tools.isci_vergi_toplami._ocr_region_boxes", side_effect=readings,
+            ) as ocr:
+                value = _reread_named_amount(
+                    page, lines, "net odenen", 1000, (0.43, 0.76), (0.76, 0.99), 100, 300, 1.0,
+                )
+                self.assertEqual(expected, value)
+                for call in ocr.call_args_list:
+                    self.assertTrue(call.kwargs["remove_colored_ink"])
+
+    def test_amount_crop_does_not_disable_detection_for_the_next_page(self):
+        engine = Mock()
+        with patch("tools.isci_vergi_toplami._OCR_ENGINE", engine):
+            _run_rapidocr("amount crop", recognition_only=True)
+            _run_rapidocr("next page")
+        self.assertEqual(False, engine.call_args_list[0].kwargs["use_det"])
+        self.assertEqual(False, engine.call_args_list[0].kwargs["use_cls"])
+        self.assertEqual(True, engine.call_args_list[1].kwargs["use_det"])
+        self.assertEqual(True, engine.call_args_list[1].kwargs["use_cls"])
 
     def test_reads_wrapped_amount_from_line_below_heading(self):
         lines = [
