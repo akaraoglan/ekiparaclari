@@ -42,77 +42,6 @@ _EXCEL_COLUMNS = [
     ("employer_cost", "İşveren Maliyeti (Teşvikli)"),
 ]
 
-_EXTRA_PAYMENT_LABELS = (
-    (
-        "cocuk_parasi",
-        "Çocuk Parası",
-        ("cocuk parasi", "ocuk parasi"),
-        (),
-    ),
-    (
-        "dogum_yardimi",
-        "Doğum Yardımı",
-        ("dogum yardimi", "do um yardimi"),
-        (),
-    ),
-    (
-        "olum_yardimi",
-        "Ölüm Yardımı",
-        ("olum yardimi", "l m yardimi"),
-        (),
-    ),
-    ("evlenme_yardimi", "Evlenme Yardımı", ("evlenme yardimi",), ()),
-    (
-        "diger_ek_gelir",
-        "Diğer Ek Gelir",
-        ("diger ek gelir", "di er ek gelir"),
-        (),
-    ),
-    (
-        "sgk_istirahat_odemesi",
-        "SGK İstirahat Ödemesi",
-        (
-            "sgk istirahat odemesi",
-            "sgk stirahat odemesi",
-            "sgk istirahat demesi",
-            "sgk stirahat demesi",
-        ),
-        (),
-    ),
-    (
-        "yillik_izin_ucreti",
-        "Yıllık İzin Ücreti",
-        (
-            "yillik izin ucreti",
-            "yillik zin ucreti",
-            "yillik izin creti",
-            "yillik zin creti",
-        ),
-        (),
-    ),
-    (
-        "yillik_izin_harcligi",
-        "Yıllık İzin Harçlığı",
-        (
-            "yillik izin harcligi",
-            "yillik zin harcligi",
-            "yillik izin har li",
-            "yillik zin har li",
-        ),
-        (),
-    ),
-    ("ikramiye", "İkramiye", ("ikramiye", "kramiye"), ()),
-    ("prim", "Prim", ("prim",), ()),
-    ("kira_yardimi", "Kira Yardımı", ("kira yardimi",), ()),
-    (
-        "yakacak_yardimi",
-        "Yakacak Yardımı",
-        ("yakacak yardimi", "yakacak yardimi nakdi", "yakacak yard mi"),
-        ("a ik yardimi na", "ik yardimi na"),
-    ),
-    ("yk_ucreti", "YK Ücreti", ("yk ucreti", "yk creti"), ()),
-)
-
 
 @dataclass(frozen=True)
 class TextBox:
@@ -488,64 +417,22 @@ def _section_total(
     return None
 
 
-def _extra_label_match_score(normalized: str, alias: str) -> float:
-    if normalized == alias:
-        return 1.0
-    if len(normalized) >= 4 and len(alias) >= 4:
-        if alias in normalized:
-            return 0.96
-        if normalized in alias and len(normalized) / len(alias) >= 0.70:
-            return 0.92
-    return SequenceMatcher(None, normalized, alias).ratio()
-
-
 def _canonical_extra_payment_label(
     raw_label: str,
     confidence: float = 1.0,
 ) -> tuple[str, str, bool, str | None, float]:
-    normalized = _plain(raw_label)
-    best_match = None
-    best_score = 0.0
-    best_reliable = True
-
-    for key, header, aliases, uncertain_aliases in _EXTRA_PAYMENT_LABELS:
-        for alias in aliases:
-            score = _extra_label_match_score(normalized, alias)
-            if score > best_score:
-                best_match = (key, header)
-                best_score = score
-                best_reliable = True
-        for alias in uncertain_aliases:
-            score = _extra_label_match_score(normalized, alias)
-            if score > best_score:
-                best_match = (key, header)
-                best_score = score
-                best_reliable = False
-
-    if best_match is not None and best_score >= 0.74:
-        key, header = best_match
-        estimated = not best_reliable or best_score < 0.88 or confidence < 0.55
-        reason = None
-        if not best_reliable:
-            reason = (
-                "Başlığın bir bölümü okunamadı; diğer bordro "
-                "satırlarıyla eşleştirildi."
-            )
-        elif best_score < 0.88:
-            reason = "Başlık benzerliğe göre eşleştirildi."
-        elif confidence < 0.55:
-            reason = "Başlığın OCR güveni düşük."
-        return key, header, estimated, reason, best_score
-
-    display = re.sub(r"\s+", " ", raw_label).strip(" :-")
-    display = display.replace("�", "").strip()
-    display = re.sub(r"\s*\(\s*(?:na)?\s*$", "", display, flags=re.IGNORECASE)
-    if not display:
-        display = "Ek Ödeme"
-    slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_") or "belirsiz"
-    estimated = "�" in raw_label or confidence < 0.55 or len(normalized) < 3
-    reason = "Başlık eksik veya düşük güvenle okundu." if estimated else None
-    return f"ocr_{slug}", display, estimated, reason, 1.0
+    """Keep the observed heading; never infer an extra payment category."""
+    display = re.sub(r"\s+", " ", raw_label).strip()
+    # Only spacing and letter case are equivalent. Accents, punctuation and
+    # qualifiers may distinguish actual payment types and must remain intact.
+    identity = unicodedata.normalize("NFC", display).casefold().replace("i\u0307", "i")
+    key = f"ocr_{identity}" if identity else "ocr_belirsiz"
+    needs_review = "�" in display or confidence < 0.55 or len(_plain(display)) < 3
+    reason = (
+        "Başlık eksik veya düşük güvenle okundu; ödeme türü tahmin edilmedi."
+        if needs_review else None
+    )
+    return key, display or "Başlık okunamadı", needs_review, reason, confidence
 
 
 def _find_extra_payment_total(
@@ -632,7 +519,8 @@ def _extract_extra_payment_items(
             else 0.0
         )
         if not raw_label:
-            raw_label = f"Ek Ödeme {len(payments) + 1}"
+            confidence = 0.0
+            raw_label = f"Başlık okunamadı (satır {len(payments) + 1})"
 
         key, header, estimated, reason, score = _canonical_extra_payment_label(
             raw_label, confidence
@@ -1277,25 +1165,6 @@ def extract_page_values(page) -> dict:
     raise ValueError("Bordro sayfasında okunabilir veri bulunamadı.")
 
 
-def _resolve_extra_payment_key(
-    key: str,
-    header: str,
-    columns: dict[str, dict],
-) -> tuple[str, bool]:
-    if key in columns or not key.startswith("ocr_"):
-        return key, False
-    normalized = _plain(header)
-    for existing_key, column in columns.items():
-        existing = _plain(column["header"])
-        if (
-            normalized
-            and existing
-            and SequenceMatcher(None, normalized, existing).ratio() >= 0.88
-        ):
-            return existing_key, True
-    return key, False
-
-
 def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
     rows = []
     warnings = []
@@ -1341,15 +1210,7 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
                 for key, amount in page_payments.items():
                     metadata = dict(page_metadata.get(key, {}))
                     header = metadata.get("header", key)
-                    resolved_key, inferred_merge = _resolve_extra_payment_key(
-                        key, header, extra_payment_columns
-                    )
-                    if inferred_merge:
-                        metadata["estimated"] = True
-                        metadata["reason"] = (
-                            metadata.get("reason")
-                            or "Başlık diğer sayfalardaki benzer ek ödeme adıyla eşleştirildi."
-                        )
+                    resolved_key = key
                     resolved_payments[resolved_key] = (
                         resolved_payments.get(resolved_key, Decimal("0")) + amount
                     )
@@ -1371,13 +1232,13 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
                             "filename": original_name,
                             "page": page_number,
                             "raw_label": metadata.get("raw_label", ""),
-                            "reason": metadata.get("reason") or "Başlık tahmini olarak eşleştirildi.",
+                            "reason": metadata.get("reason") or "Başlık kontrol edilmelidir; ödeme türü tahmin edilmedi.",
                         }
                         column["estimated_sources"].append(source)
                         warnings.append(
                             f"{original_name} - Sayfa {page_number}: "
                             f"'{source['raw_label']}' başlığı "
-                            f"'{column['header']}' olarak tahmin edildi. "
+                            f"'{column['header']}' olarak korundu; kontrol edilmelidir. "
                             f"{source['reason']}"
                         )
 
@@ -1448,7 +1309,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
         if excel_rows:
             row_label = "satırı" if len(excel_rows) == 1 else "satırları"
             row_text = ", ".join(str(row) for row in excel_rows)
-            header = f"{header} (Tahmini - Excel {row_label}: {row_text})"
+            header = f"{header} (Kontrol gerekli - Excel {row_label}: {row_text})"
         extra_headers.append(header)
     headers = (
         ["Dosya", "Sayfa", "Çalışan Sayısı"]
