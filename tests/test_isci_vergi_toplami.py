@@ -16,6 +16,7 @@ from tools.isci_vergi_toplami import (
     _run_rapidocr,
     _EXCEL_COLUMNS,
     _extract_employee_count,
+    _extract_personnel_subarea,
     _canonical_extra_payment_label,
     _extract_extra_payment_items,
     _find_extra_payment_total,
@@ -28,6 +29,28 @@ from tools.isci_vergi_toplami import (
 
 
 class IsciVergiToplamiTest(unittest.TestCase):
+    def test_reads_personnel_subarea_without_neighboring_header_fields(self):
+        for name in ("Merkez", "Balıkesir", "Merkez İdari İşler"):
+            line = [
+                TextBox("PERSONEL ALT ALANI", 10, 40, 180, 50),
+                TextBox(":", 190, 40, 195, 50),
+                TextBox(name, 210, 40, 390, 50),
+                TextBox("Erkek Sayısı: 17", 500, 40, 650, 50),
+            ]
+            self.assertEqual(name, _extract_personnel_subarea([line], 1000, 1500))
+        self.assertEqual("Balıkesir", _extract_personnel_subarea([
+            [TextBox("Personel Alt Alanı : Balıkesir", 10, 40, 400, 50)],
+        ], 1000, 1500))
+        self.assertEqual("Merkez", _extract_personnel_subarea([
+            [TextBox("PERSONELT ALANI Merkez", 10, 40, 400, 50)],
+        ], 1000, 1500))
+        self.assertIsNone(_extract_personnel_subarea([
+            [TextBox("PERSONEL ALT ALANI:", 10, 40, 180, 50)],
+        ], 1000, 1500))
+        self.assertIsNone(_extract_personnel_subarea([
+            [TextBox("ŞİRKET: Örnek", 10, 40, 180, 50)],
+        ], 1000, 1500))
+
     def test_reads_employee_count_without_using_neighboring_counts(self):
         lines = [[
             TextBox("ÇALIŞAN SAYISI", 10, 60, 130, 70),
@@ -115,6 +138,7 @@ class IsciVergiToplamiTest(unittest.TestCase):
             values.append({
                 **{key: Decimal("0") for key, _ in _EXCEL_COLUMNS},
                 "employee_count": 1,
+                "personnel_subarea": "Merkez",
                 "extra_payments": payments, "extra_payment_meta": metadata,
             })
         excel_path = None
@@ -383,6 +407,7 @@ class IsciVergiToplamiTest(unittest.TestCase):
                 doc.save(pdf_path)
             values = {key: Decimal("10.00") for key, _ in _EXCEL_COLUMNS}
             values["employee_count"] = 1
+            values["personnel_subarea"] = "Merkez"
             with patch("tools.isci_vergi_toplami.extract_page_values", side_effect=[
                 dict(values), ValueError("Ek Ödemeler toplamı okunamadı"), dict(values),
             ]):
@@ -440,6 +465,7 @@ class IsciVergiToplamiTest(unittest.TestCase):
                 put(790, y, worker)
             if employer is not None:
                 put(910, y, employer)
+        left(40, "PERSONEL ALT ALANI: Merkez")
         left(60, "CALISAN SAYISI: 21")
         left(100, "Calismalar")
         put(370, 100, "Brut Tutar")
@@ -474,6 +500,7 @@ class IsciVergiToplamiTest(unittest.TestCase):
                 "filename": "ornek.pdf",
                 "page": page,
                 "employee_count": 21 if page == 1 else None,
+                "personnel_subarea": "Merkez" if page == 1 else None,
                 **{key: Decimal("1.00") for key, _ in _EXCEL_COLUMNS},
                 "extra_payments": {
                     "cocuk_parasi": Decimal("10.00") * page,
@@ -506,6 +533,9 @@ class IsciVergiToplamiTest(unittest.TestCase):
             workbook = load_workbook(output_path, data_only=False)
             try:
                 sheet = workbook["Vergi Toplamları"]
+                self.assertEqual("Personel Alt Alanı", sheet["A3"].value)
+                self.assertEqual("Merkez", sheet["A4"].value)
+                self.assertIsNone(sheet["A5"].value)
                 self.assertEqual("Çalışan Sayısı", sheet["C3"].value)
                 self.assertEqual(21, sheet["C4"].value)
                 self.assertEqual("n", sheet["C4"].data_type)
