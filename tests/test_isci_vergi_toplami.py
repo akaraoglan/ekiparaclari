@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+import fitz
 from openpyxl import load_workbook
 
 from tools.isci_vergi_toplami import (
@@ -13,6 +14,7 @@ from tools.isci_vergi_toplami import (
     _extract_extra_payment_items,
     _find_extra_payment_total,
     _named_amount,
+    analyze_tax_pdfs,
     create_tax_excel,
     extract_page_values,
 )
@@ -51,22 +53,87 @@ class IsciVergiToplamiTest(unittest.TestCase):
             total_y=350,
         )
 
-        self.assertEqual(Decimal("3544.92"), payments["cocuk_parasi"])
-        self.assertEqual(Decimal("5730.00"), payments["yillik_izin_harcligi"])
-        self.assertEqual(Decimal("368678.04"), payments["yakacak_yardimi"])
+        self.assertEqual(Decimal("3544.92"), payments["ocr_çocuk parası"])
+        self.assertEqual(Decimal("5730.00"), payments["ocr_yıllık izin harçlığı"])
+        self.assertEqual(Decimal("368678.04"), payments["ocr_yakacak yardımı (na"])
         self.assertEqual(Decimal("377952.96"), sum(payments.values()))
-        self.assertFalse(metadata["yakacak_yardimi"]["estimated"])
+        self.assertFalse(metadata["ocr_yakacak yardımı (na"]["estimated"])
 
-    def test_infers_partly_unreadable_yakacak_heading(self):
-        key, header, estimated, reason, _ = _canonical_extra_payment_label(
-            "a ik Yardimi (Na",
-            confidence=0.91,
+    def test_preserves_payment_headings_without_guessing_categories(self):
+        for label in (
+            "Bayram Yardımı", "Yemek Yardımı", "Yemek Ödemesi",
+            "a ik Yardimi (Na", "Yakacak Yardımı (Na",
+            "Doğum Yardımı", "Doğum Yardımı (Nakdi)", "Do um Yardimi",
+            "� Yardımı",
+        ):
+            with self.subTest(label=label):
+                _, header, _, _, _ = _canonical_extra_payment_label(label)
+                self.assertEqual(label, header)
+        _, header, needs_review, reason, _ = _canonical_extra_payment_label(
+            "Bayram Yardımı", confidence=0.4,
         )
+        self.assertEqual("Bayram Yardımı", header)
+        self.assertTrue(needs_review)
+        self.assertIn("tahmin edilmedi", reason)
 
-        self.assertEqual("yakacak_yardimi", key)
-        self.assertEqual("Yakacak Yardımı", header)
-        self.assertTrue(estimated)
-        self.assertIn("okunamadı", reason)
+    def test_missing_heading_keeps_amount_with_review_warning(self):
+        payments, metadata = _extract_extra_payment_items(
+            [self._line(200, "", "125,00")], 1000, 150, 250,
+        )
+        self.assertEqual(Decimal("125.00"), sum(payments.values()))
+        self.assertTrue(next(iter(metadata.values()))["estimated"])
+        self.assertIn("Başlık okunamadı", next(iter(metadata.values()))["header"])
+
+    def test_similar_headings_stay_separate_across_pdfs_and_excel(self):
+        output_root = Path(__file__).resolve().parents[1] / "outputs"
+        output_root.mkdir(parents=True, exist_ok=True)
+        pdf_path = output_root / "test_extra_payments.pdf"
+        with fitz.open() as document:
+            document.new_page()
+            document.new_page()
+            document.save(pdf_path)
+        values = []
+        expected = {
+            "Bayram Yardımı": Decimal("100.00"),
+            "Yemek Yardımı": Decimal("200.00"),
+            "Doğum Yardımı": Decimal("300.00"),
+            "Do um Yardimi": Decimal("400.00"),
+            "Yemek Yardımı (Nakdi)": Decimal("500.00"),
+        }
+        for labels in (list(expected)[:3], list(expected)[3:]):
+            payments, metadata = _extract_extra_payment_items(
+                [self._line(200 + i * 20, label, str(expected[label]))
+                 for i, label in enumerate(labels)], 1000, 150, 350,
+            )
+            values.append({
+                **{key: Decimal("0") for key, _ in _EXCEL_COLUMNS},
+                "employee_count": 1,
+                "extra_payments": payments, "extra_payment_meta": metadata,
+            })
+        excel_path = None
+        try:
+            with patch("tools.isci_vergi_toplami.extract_page_values", side_effect=values):
+                result = analyze_tax_pdfs([(str(pdf_path), "ornek.pdf")])
+            self.assertEqual(list(expected), [c["header"] for c in result["extra_payment_columns"]])
+            self.assertEqual(sum(expected.values()), sum(result["extra_payment_totals"].values()))
+            self.assertEqual([], result["warnings"])
+            excel_path = create_tax_excel(result, str(output_root))
+            workbook = load_workbook(excel_path)
+            try:
+                sheet = workbook["Vergi Toplamları"]
+                start = 4 + len(_EXCEL_COLUMNS)
+                for offset, (label, amount) in enumerate(expected.items()):
+                    column = start + offset
+                    self.assertEqual(label, sheet.cell(3, column).value)
+                    row = 4 if offset < 3 else 5
+                    self.assertEqual(float(amount), sheet.cell(row, column).value)
+                    self.assertEqual(0, sheet.cell(9 - row, column).value)
+            finally:
+                workbook.close()
+        finally:
+            pdf_path.unlink(missing_ok=True)
+            if excel_path:
+                Path(excel_path).unlink(missing_ok=True)
 
     def test_finds_total_when_first_letter_is_not_read(self):
         lines = [self._line(400, "oplam", "377.952,96")]
@@ -169,7 +236,7 @@ class IsciVergiToplamiTest(unittest.TestCase):
                 self.assertEqual("Brüt Ücret (YK Dahil)", sheet["D3"].value)
                 self.assertEqual("İşveren Maliyeti (Teşvikli)", sheet["U3"].value)
                 self.assertEqual("Çocuk Parası", sheet["V3"].value)
-                self.assertIn("Tahmini - Excel satırı: 5", sheet["W3"].value)
+                self.assertIn("Kontrol gerekli - Excel satırı: 5", sheet["W3"].value)
                 self.assertEqual("F4CCCC", sheet["W3"].fill.fgColor.rgb[-6:])
                 self.assertEqual(40.0, sheet["W5"].value)
                 self.assertEqual("n", sheet["W5"].data_type)
