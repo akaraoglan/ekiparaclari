@@ -1216,6 +1216,20 @@ def _extract_additional_values(
     }
 
 
+def _extract_personnel_subarea(
+    lines: list[list[TextBox]], width: float, height: float,
+) -> str | None:
+    for line in lines:
+        if _line_y(line) > height * 0.12:
+            continue
+        text = _regional_text(line, width, 0.00, 0.45)
+        match = re.search(r"\bpersonel(?:\s*alt|\s*t)?\s*alan[ıi]\s*:?\s*(.*)", text, re.IGNORECASE)
+        if match:
+            value = re.sub(r"\s+", " ", match.group(1)).strip(" :")
+            return value or None
+    return None
+
+
 def _extract_employee_count(
     lines: list[list[TextBox]], width: float, height: float
 ) -> int | None:
@@ -1271,24 +1285,29 @@ def _extract_page_values_from_boxes(
         raise ValueError(f"İşçi sütunundaki {' ve '.join(missing)} okunamadı.")
     values.update({
         "employee_count": _extract_employee_count(lines, width, height),
+        "personnel_subarea": _extract_personnel_subarea(lines, width, height),
         "gross": gross,
         "yk_fee": yk_fee,
         "income": income,
         "stamp": stamp,
     })
-    if values["employee_count"] is None:
-        # Retry only the header so count OCR does not change financial extraction.
+    if values["employee_count"] is None or values["personnel_subarea"] is None:
+        # Retry only the header so metadata OCR does not change financial extraction.
         try:
             header_boxes = _ocr_region_boxes(
                 page,
-                fitz.Rect(0, 0, page.rect.width * 0.32, page.rect.height * 0.10),
+                fitz.Rect(0, 0, page.rect.width * 0.45, page.rect.height * 0.12),
                 3.0,
             )
-            values["employee_count"] = _extract_employee_count(
-                _group_lines(header_boxes, page.rect.height * 3.0),
-                page.rect.width * 3.0,
-                page.rect.height * 3.0,
-            )
+            header_lines = _group_lines(header_boxes, page.rect.height * 3.0)
+            if values["employee_count"] is None:
+                values["employee_count"] = _extract_employee_count(
+                    header_lines, page.rect.width * 3.0, page.rect.height * 3.0,
+                )
+            if values["personnel_subarea"] is None:
+                values["personnel_subarea"] = _extract_personnel_subarea(
+                    header_lines, page.rect.width * 3.0, page.rect.height * 3.0,
+                )
         except (RuntimeError, ValueError):
             pass
     return values
@@ -1411,6 +1430,11 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
                     warnings.append(
                         f"{original_name} - Sayfa {page_number}: "
                         "Çalışan sayısı okunamadı; ilgili hücre boş bırakıldı."
+                    )
+                if not values.get("personnel_subarea"):
+                    warnings.append(
+                        f"{original_name} - Sayfa {page_number}: "
+                        "Personel Alt Alanı okunamadı; ilgili hücre boş bırakıldı."
                     )
                 if extra_payment_warning:
                     warnings.append(
@@ -1543,7 +1567,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
             header = f"{header} (Kontrol gerekli - Excel {row_label}: {row_text})"
         extra_headers.append(header)
     headers = (
-        ["Dosya", "Sayfa", "Çalışan Sayısı"]
+        ["Personel Alt Alanı", "Sayfa", "Çalışan Sayısı"]
         + [header for _, header in _EXCEL_COLUMNS]
         + extra_headers
     )
@@ -1564,7 +1588,7 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
 
     for row_number, row in enumerate(result["rows"], start=first_data_row):
         values = (
-            [row["filename"], row["page"], row.get("employee_count")]
+            [row.get("personnel_subarea"), row["page"], row.get("employee_count")]
             + [float(row[key]) for key, _ in _EXCEL_COLUMNS]
             + [
                 float(row.get("extra_payments", {}).get(
