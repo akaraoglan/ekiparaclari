@@ -43,6 +43,10 @@ _EXCEL_COLUMNS = [
 ]
 
 
+class OCRUnavailableError(RuntimeError):
+    """OCR dependencies or models could not be initialized."""
+
+
 @dataclass(frozen=True)
 class TextBox:
     text: str
@@ -138,42 +142,54 @@ def format_tr_money(value: Decimal) -> str:
 
 
 def _native_boxes(page) -> list[TextBox]:
-    return [
-        TextBox(str(word[4]), float(word[0]), float(word[1]), float(word[2]), float(word[3]))
-        for word in page.get_text("words")
-        if str(word[4]).strip()
-    ]
+    boxes = []
+    for word in page.get_text("words"):
+        if not str(word[4]).strip():
+            continue
+        # Native PDF coordinates ignore page rotation; rendered OCR does not.
+        rect = fitz.Rect(word[:4]) * page.rotation_matrix
+        boxes.append(TextBox(str(word[4]), rect.x0, rect.y0, rect.x1, rect.y1))
+    return boxes
 
 
 def _run_rapidocr(image):
     try:
         from rapidocr import RapidOCR
     except ImportError as exc:
-        raise RuntimeError(
+        raise OCRUnavailableError(
             "OCR paketleri eksik. Sunucuda 'pip install -r requirements.txt' komutunu çalıştırın."
         ) from exc
 
     global _OCR_ENGINE
-    try:
-        with _OCR_LOCK:
-            if _OCR_ENGINE is None:
+    with _OCR_LOCK:
+        if _OCR_ENGINE is None:
+            try:
                 _OCR_ENGINE = RapidOCR()
-            result = _OCR_ENGINE(image)
-    except Exception as exc:
-        detail = str(exc).splitlines()[0][:160]
-        if "libgl" in detail.casefold():
-            raise RuntimeError(
-                "OCR başlatılamadı. Linux sunucuda libGL1 paketini kurup servisi yeniden başlatın."
+            except Exception as exc:
+                detail = str(exc).splitlines()[0][:160]
+                if "libgl" in detail.casefold():
+                    raise OCRUnavailableError(
+                        "OCR başlatılamadı. Linux sunucuda libGL1 paketini kurup servisi yeniden başlatın."
+                    ) from exc
+                raise OCRUnavailableError(
+                    f"OCR başlatılamadı ({type(exc).__name__}: {detail})."
+                ) from exc
+        try:
+            return _OCR_ENGINE(image)
+        except Exception as exc:
+            detail = str(exc).splitlines()[0][:160]
+            # A page-specific inference failure should allow other reading
+            # strategies and subsequent pages, unlike missing dependencies.
+            raise ValueError(
+                f"OCR görüntüyü okuyamadı ({type(exc).__name__}: {detail})."
             ) from exc
-        raise RuntimeError(f"OCR çalıştırılamadı ({type(exc).__name__}: {detail}).") from exc
-    return result
 
 
 def _ocr_region_boxes(page, clip: fitz.Rect, scale: float) -> list[TextBox]:
     try:
         import numpy as np
     except ImportError as exc:
-        raise RuntimeError(
+        raise OCRUnavailableError(
             "OCR paketleri eksik. Sunucuda 'pip install -r requirements.txt' komutunu çalıştırın."
         ) from exc
 
@@ -219,6 +235,26 @@ def _ocr_boxes(page, scale: float = 2.0) -> tuple[list[TextBox], float, float]:
     height = float(page.rect.height * scale)
     boxes = _ocr_region_boxes(page, page.rect, scale)
     return boxes, width, height
+
+
+def _ocr_banded_boxes(page, scale: float = 3.0) -> tuple[list[TextBox], float, float]:
+    """Read overlapping bands so full-page downscaling cannot hide small text."""
+    width, height = float(page.rect.width), float(page.rect.height)
+    boxes = []
+    band_count = 4
+    padding = 24.0
+    for index in range(band_count):
+        start = height * index / band_count
+        end = height * (index + 1) / band_count
+        clip = fitz.Rect(0, max(0, start - padding), width, min(height, end + padding))
+        region_boxes = _ocr_region_boxes(page, clip, scale)
+        # Overlap protects rows at crop edges. Ownership by center prevents
+        # counting the same payment twice when both bands read it.
+        boxes.extend(
+            box for box in region_boxes
+            if start * scale <= box.center_y < end * scale
+        )
+    return boxes, width * scale, height * scale
 
 
 def _group_lines(boxes: list[TextBox], page_height: float) -> list[list[TextBox]]:
@@ -863,15 +899,16 @@ def _extract_additional_values(
     employer_extra_unemployment = _deduction_row_amount(
         lines, "ek issizlik", employer_x, width, height
     )
-    contribution_values = [
-        worker_sgk,
-        worker_sgdp,
-        worker_unemployment,
-        employer_unemployment,
-        employer_extra_unemployment,
-    ]
-    if any(value is None for value in contribution_values):
-        raise ValueError("İşçi veya işveren SGK/işsizlik tutarları okunamadı.")
+    contribution_values = {
+        "İşçi SGK": worker_sgk,
+        "İşçi SGDP": worker_sgdp,
+        "İşçi İşsizlik": worker_unemployment,
+        "İşveren İşsizlik": employer_unemployment,
+        "İşveren Ek İşsizlik": employer_extra_unemployment,
+    }
+    missing = [label for label, value in contribution_values.items() if value is None]
+    if missing:
+        raise ValueError(f"Okunamayan tutarlar: {', '.join(missing)}.")
 
     employer_legal_total = _named_amount(
         lines,
@@ -967,8 +1004,15 @@ def _extract_additional_values(
         height,
         allow_next_line=True,
     )
-    if None in (income_tax_incentive, stamp_tax_incentive, net_paid, employer_cost):
-        raise ValueError("Vergi teşvikleri, net ödenen veya işveren maliyeti okunamadı.")
+    required_amounts = {
+        "Gelir Vergisi İndirimi": income_tax_incentive,
+        "Damga Vergisi İndirimi": stamp_tax_incentive,
+        "Net Ödenen": net_paid,
+        "İşveren Maliyeti": employer_cost,
+    }
+    missing = [label for label, value in required_amounts.items() if value is None]
+    if missing:
+        raise ValueError(f"Okunamayan tutarlar: {', '.join(missing)}.")
 
     automatic_bes = _named_amount(
         lines,
@@ -1122,52 +1166,65 @@ def _extract_page_values_from_boxes(
 
 
 def extract_page_values(page) -> dict:
-    native = _native_boxes(page)
-    native_text = " ".join(item.text for item in native)
-    native_has_structure = (
-        "gelir" in _plain(native_text)
-        and "damga" in _plain(native_text)
-        and "ek odemeler" in _plain(native_text)
+    failures = []
+
+    def attempt(name, reader, scale, source_page=None):
+        try:
+            boxes, width, height = reader()
+            return _extract_page_values_from_boxes(
+                source_page if source_page is not None else page,
+                boxes, width, height, scale,
+            )
+        except OCRUnavailableError:
+            raise
+        except Exception as exc:
+            failures.append(f"{name}: {exc}")
+            return None
+
+    # Do not discard readable native text because one heading has accents,
+    # joined words or a line break. The parser itself validates the fields.
+    values = attempt(
+        "PDF metni",
+        lambda: (_native_boxes(page), float(page.rect.width), float(page.rect.height)),
+        1.0,
     )
-    last_error = None
-
-    if native_has_structure:
-        try:
-            return _extract_page_values_from_boxes(
-                page,
-                native,
-                float(page.rect.width),
-                float(page.rect.height),
-                1.0,
+    if values is not None:
+        return values
+    if getattr(page, "rotation", 0):
+        # Some exports attach a rotation flag to an otherwise upright payroll.
+        # Try its native coordinates on a copy; never mutate the uploaded PDF.
+        with fitz.open() as copy:
+            copy.insert_pdf(page.parent, from_page=page.number, to_page=page.number)
+            unrotated = copy[0]
+            unrotated.set_rotation(0)
+            values = attempt(
+                "PDF metni (döndürme bilgisi kaldırılmış kopya)",
+                lambda: (
+                    _native_boxes(unrotated),
+                    float(unrotated.rect.width), float(unrotated.rect.height),
+                ),
+                1.0, source_page=unrotated,
             )
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            last_error = exc
-
-    for ocr_scale in (2.0, 3.0):
-        try:
-            boxes, width, height = _ocr_boxes(page, scale=ocr_scale)
-            return _extract_page_values_from_boxes(
-                page,
-                boxes,
-                width,
-                height,
-                ocr_scale,
-            )
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            last_error = exc
-
-    if last_error is not None:
-        raise last_error
-    raise ValueError("Bordro sayfasında okunabilir veri bulunamadı.")
+            if values is not None:
+                return values
+    for scale in (2.0, 3.0):
+        values = attempt(
+            f"Tam sayfa OCR ({scale:g}x)",
+            lambda: _ocr_boxes(page, scale=scale),
+            scale,
+        )
+        if values is not None:
+            return values
+    values = attempt("Bölgesel OCR", lambda: _ocr_banded_boxes(page), 3.0)
+    if values is not None:
+        return values
+    raise ValueError("Sayfa okunamadı. " + " | ".join(failures))
 
 
 def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
     rows = []
     warnings = []
+    failed_pages = []
     totals = {key: Decimal("0") for key, _ in _EXCEL_COLUMNS}
     extra_payment_columns: dict[str, dict] = {}
     extra_payment_totals: dict[str, Decimal] = {}
@@ -1183,10 +1240,16 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
             for page_number, page in enumerate(document, start=1):
                 try:
                     values = extract_page_values(page)
-                except RuntimeError:
+                except OCRUnavailableError:
                     raise
                 except Exception as exc:
-                    warnings.append(f"{original_name} - Sayfa {page_number}: {exc}")
+                    failed_pages.append({
+                        "filename": original_name, "page": page_number, "reason": str(exc),
+                    })
+                    warnings.append(
+                        f"{original_name} - Sayfa {page_number}: {exc} "
+                        "Bu sayfa toplamlara dahil edilmedi; toplamlar eksiktir."
+                    )
                     continue
                 extra_payment_warning = values.pop("extra_payment_warning", None)
                 if values.get("employee_count") is None:
@@ -1256,6 +1319,7 @@ def analyze_tax_pdfs(pdf_files: list[tuple[str, str]]) -> dict:
     result = {
         "rows": rows,
         "warnings": warnings,
+        "failed_pages": failed_pages,
         "totals": totals,
         "extra_payment_columns": list(extra_payment_columns.values()),
         "extra_payment_totals": extra_payment_totals,
@@ -1296,6 +1360,18 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
     title.font = Font(name="Arial", size=15, bold=True, color=white)
     title.alignment = Alignment(horizontal="center", vertical="center")
     sheet.row_dimensions[1].height = 28
+
+    if result.get("failed_pages"):
+        sheet.merge_cells(f"A2:{last_column_letter}2")
+        notice = sheet["A2"]
+        notice.value = (
+            f"DİKKAT: {len(result['failed_pages'])} sayfa okunamadı. "
+            "Toplamlar yalnızca okunan sayfaları içerir. Uyarılar sayfasını kontrol edin."
+        )
+        notice.fill = PatternFill("solid", fgColor=estimated_fill)
+        notice.font = Font(name="Arial", bold=True, color=estimated_font)
+        notice.alignment = Alignment(wrap_text=True, vertical="center")
+        sheet.row_dimensions[2].height = 32
 
     header_row = 3
     first_data_row = header_row + 1
@@ -1359,7 +1435,10 @@ def create_tax_excel(result: dict, output_dir: str) -> str:
     last_data_row = first_data_row + len(result["rows"]) - 1
     total_row = last_data_row + 1
     sheet.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=2)
-    total_label = sheet.cell(total_row, 1, "GENEL TOPLAM")
+    total_label = sheet.cell(
+        total_row, 1,
+        "OKUNAN SAYFALAR TOPLAMI" if result.get("failed_pages") else "GENEL TOPLAM",
+    )
     total_label.alignment = Alignment(horizontal="right", vertical="center")
     for column in range(3, last_column + 1):
         column_letter = get_column_letter(column)
