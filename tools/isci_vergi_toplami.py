@@ -1,4 +1,5 @@
 import os
+import math
 import re
 import threading
 import unicodedata
@@ -94,6 +95,12 @@ def _text_matches(text: str, label: str) -> bool:
     return False
 
 
+def _is_total_label(text: str) -> bool:
+    # A scan cropped at the left edge may lose the first two letters.
+    # These are structural total labels, never extra-payment categories.
+    return _text_matches(text, "toplam") or _plain(text) == "plam"
+
+
 def _parse_money(text: str) -> Decimal | None:
     compact = text.replace(" ", "")
     for match in _MONEY_RE.finditer(compact):
@@ -152,7 +159,7 @@ def _native_boxes(page) -> list[TextBox]:
     return boxes
 
 
-def _run_rapidocr(image):
+def _run_rapidocr(image, recognition_only: bool = False):
     try:
         from rapidocr import RapidOCR
     except ImportError as exc:
@@ -175,7 +182,9 @@ def _run_rapidocr(image):
                     f"OCR başlatılamadı ({type(exc).__name__}: {detail})."
                 ) from exc
         try:
-            return _OCR_ENGINE(image)
+            return _OCR_ENGINE(
+                image, use_det=not recognition_only, use_cls=not recognition_only,
+            )
         except Exception as exc:
             detail = str(exc).splitlines()[0][:160]
             # A page-specific inference failure should allow other reading
@@ -185,7 +194,10 @@ def _run_rapidocr(image):
             ) from exc
 
 
-def _ocr_region_boxes(page, clip: fitz.Rect, scale: float) -> list[TextBox]:
+def _ocr_region_boxes(
+    page, clip: fitz.Rect, scale: float, remove_colored_ink: bool = False,
+    recognition_only: bool = False,
+) -> list[TextBox]:
     try:
         import numpy as np
     except ImportError as exc:
@@ -202,9 +214,25 @@ def _ocr_region_boxes(page, clip: fitz.Rect, scale: float) -> list[TextBox]:
     image = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(
         pixmap.height, pixmap.width, pixmap.n
     )
-    result = _run_rapidocr(image)
-    offset_x = clip.x0 * scale
-    offset_y = clip.y0 * scale
+    if remove_colored_ink:
+        # Keep dark printed strokes and suppress colored signatures/stamps.
+        # This filters existing pixels; it never reconstructs missing digits.
+        image = np.repeat(image.max(axis=2, keepdims=True), 3, axis=2)
+        # A border keeps the detector from clipping a tightly cropped digit.
+        image = np.pad(image, ((10, 10), (10, 10), (0, 0)), constant_values=255)
+    result = _run_rapidocr(image, recognition_only=recognition_only)
+    if recognition_only:
+        return [
+            TextBox(text, clip.x0 * scale, clip.y0 * scale,
+                    clip.x1 * scale, clip.y1 * scale, float(score))
+            for text, score in zip(
+                result.txts if result.txts is not None else (),
+                result.scores if result.scores is not None else (),
+            )
+        ]
+    border = 10 if remove_colored_ink else 0
+    offset_x = clip.x0 * scale - border
+    offset_y = clip.y0 * scale - border
 
     boxes = []
     if result.boxes is not None:
@@ -255,6 +283,50 @@ def _ocr_banded_boxes(page, scale: float = 3.0) -> tuple[list[TextBox], float, f
             if start * scale <= box.center_y < end * scale
         )
     return boxes, width * scale, height * scale
+
+
+def _deskew_page_image(page):
+    """Correct a measured table slope on a copy, without clipping scan edges."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as exc:
+        raise OCRUnavailableError("OCR görüntü işleme paketleri eksik.") from exc
+    scale = 2.0
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), colorspace=fitz.csRGB, alpha=False)
+    image = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(pixmap.height, pixmap.width, 3)
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    lines = cv2.HoughLinesP(
+        cv2.Canny(gray, 50, 150), 1, np.pi / 1800,
+        threshold=100, minLineLength=pixmap.width * 0.30, maxLineGap=30,
+    )
+    if lines is None:
+        return None
+    angles = []
+    for x0, y0, x1, y1 in lines.reshape(-1, 4):
+        angle = math.degrees(math.atan2(float(y1 - y0), float(x1 - x0)))
+        if abs(angle) <= 5 and pixmap.height * 0.02 < (y0 + y1) / 2 < pixmap.height * 0.98:
+            angles.append(angle)
+    if len(angles) < 4:
+        return None
+    angle = median(angles)
+    agreeing = [value for value in angles if abs(value - angle) <= 0.5]
+    if len(agreeing) < max(4, len(angles) * 0.65) or abs(angle) < 0.25:
+        return None
+    angle = median(agreeing)
+    matrix = cv2.getRotationMatrix2D((pixmap.width / 2, pixmap.height / 2), angle, 1)
+    width = math.ceil(abs(matrix[0, 0]) * pixmap.width + abs(matrix[0, 1]) * pixmap.height)
+    height = math.ceil(abs(matrix[0, 1]) * pixmap.width + abs(matrix[0, 0]) * pixmap.height)
+    matrix[0, 2] += (width - pixmap.width) / 2
+    matrix[1, 2] += (height - pixmap.height) / 2
+    corrected = cv2.warpAffine(
+        image, matrix, (width, height), borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
+    encoded, png = cv2.imencode(".png", cv2.cvtColor(corrected, cv2.COLOR_RGB2BGR))
+    if not encoded:
+        raise ValueError("Eğimi düzeltilmiş görüntü oluşturulamadı.")
+    return png.tobytes(), width / scale, height / scale, angle
 
 
 def _group_lines(boxes: list[TextBox], page_height: float) -> list[list[TextBox]]:
@@ -427,6 +499,60 @@ def _named_amount(
     return None
 
 
+def _reread_named_amount(
+    page, lines, label, width, label_x, amount_x, y_min, y_max, base_scale,
+) -> Decimal | None:
+    """Recover an unreadable printed amount only when two crops agree."""
+    if page is None:
+        return None
+    label_rows = [
+        line for line in lines
+        if y_min < _line_y(line) < y_max
+        and _text_matches(_regional_text(line, width, *label_x), label)
+    ]
+    if len(label_rows) != 1:
+        return None
+    line = label_rows[0]
+    label_boxes = [item for item in line if width * label_x[0] <= item.center_x <= width * label_x[1]]
+    center_y = median(item.center_y for item in label_boxes) / base_scale
+    typical_height = median(item.y1 - item.y0 for item in label_boxes) / base_scale
+    padding = max(4.0, typical_height * 0.75)
+    neighboring_distances = [
+        abs(_line_y(row) / base_scale - center_y)
+        for row in lines if row is not line
+        and _regional_text(row, width, *label_x).strip()
+    ]
+    if neighboring_distances:
+        padding = min(padding, max(4.0, min(neighboring_distances) / 2 - 1.0))
+    numeric_boxes = [
+        item for item in line
+        if width * amount_x[0] <= item.center_x <= width * amount_x[1]
+        and any(char.isdigit() for char in item.text)
+    ]
+    if len(numeric_boxes) > 1:
+        return None
+    x0, x1 = page.rect.width * amount_x[0], page.rect.width * amount_x[1]
+    if numeric_boxes:
+        x0 = max(x0, numeric_boxes[0].x0 / base_scale - 2.0)
+        x1 = min(x1, numeric_boxes[0].x1 / base_scale + 2.0)
+    clip = fitz.Rect(x0, max(0, center_y - padding), x1, min(page.rect.height, center_y + padding))
+    readings = []
+    for scale in (3.2, 4.0):
+        boxes = _ocr_region_boxes(
+            page, clip, scale, remove_colored_ink=True, recognition_only=True,
+        )
+        amounts = {
+            value for box in boxes
+            if box.confidence >= 0.85
+            and _STANDARD_TR_MONEY_RE.fullmatch(box.text.replace(" ", ""))
+            and (value := _parse_money(box.text)) is not None
+        }
+        if len(amounts) != 1:
+            return None
+        readings.append(amounts.pop())
+    return readings[0] if readings[0] == readings[1] else None
+
+
 def _section_total(
     lines: list[list[TextBox]],
     width: float,
@@ -440,9 +566,7 @@ def _section_total(
         line_y = _line_y(line)
         if not y_min < line_y < y_max:
             continue
-        if not _text_matches(
-            _regional_text(line, width, *label_x), "toplam"
-        ):
+        if not _is_total_label(_regional_text(line, width, *label_x)):
             continue
         amounts = _regional_amounts(line, width, *amount_x)
         if not amounts:
@@ -463,7 +587,7 @@ def _canonical_extra_payment_label(
     # qualifiers may distinguish actual payment types and must remain intact.
     identity = unicodedata.normalize("NFC", display).casefold().replace("i\u0307", "i")
     key = f"ocr_{identity}" if identity else "ocr_belirsiz"
-    needs_review = "�" in display or confidence < 0.55 or len(_plain(display)) < 3
+    needs_review = "�" in display or confidence < 0.85 or len(_plain(display)) < 3
     reason = (
         "Başlık eksik veya düşük güvenle okundu; ödeme türü tahmin edilmedi."
         if needs_review else None
@@ -483,7 +607,7 @@ def _find_extra_payment_total(
         if not y_min < line_y < y_max:
             continue
         label = _regional_text(line, width, 0.00, 0.20)
-        if not _text_matches(label, "toplam"):
+        if not _is_total_label(label):
             continue
         amounts = _regional_amounts(line, width, 0.28, 0.50)
         if amounts:
@@ -543,7 +667,7 @@ def _extract_extra_payment_items(
         if not amounts:
             continue
         raw_label = _regional_text(line, width, 0.00, 0.30).strip()
-        if _text_matches(raw_label, "toplam"):
+        if _is_total_label(raw_label):
             continue
         label_items = [
             item for item in line
@@ -610,7 +734,7 @@ def _reread_extra_payment_section(
         page.rect.width * 0.52,
         min(page.rect.height, total_y / base_scale + 5.0),
     )
-    boxes = _ocr_region_boxes(page, clip, scale)
+    boxes = _ocr_region_boxes(page, clip, scale, remove_colored_ink=True)
     width = float(page.rect.width * scale)
     height = float(page.rect.height * scale)
     lines = _group_lines(boxes, height)
@@ -765,7 +889,7 @@ def _extract_gross_amount(
         line_y = sum(item.center_y for item in line) / len(line)
         if line_y <= gross_header_y or line_y >= height * 0.36:
             continue
-        if "toplam" not in _plain(_line_text(line)):
+        if not _is_total_label(_regional_text(line, width, 0.00, 0.20)):
             continue
         candidates = [
             (abs(item.center_x - gross_header_x), amount)
@@ -1004,6 +1128,11 @@ def _extract_additional_values(
         height,
         allow_next_line=True,
     )
+    if net_paid is None:
+        net_paid = _reread_named_amount(
+            page, lines, "net odenen", width, (0.43, 0.76), (0.76, 0.99),
+            employer_cost_y, height, ocr_scale,
+        )
     required_amounts = {
         "Gelir Vergisi İndirimi": income_tax_incentive,
         "Damga Vergisi İndirimi": stamp_tax_incentive,
@@ -1204,6 +1333,32 @@ def extract_page_values(page) -> dict:
                     float(unrotated.rect.width), float(unrotated.rect.height),
                 ),
                 1.0, source_page=unrotated,
+            )
+            if values is not None:
+                return values
+    try:
+        deskewed = _deskew_page_image(page)
+    except OCRUnavailableError:
+        raise
+    except Exception as exc:
+        failures.append(f"Tarama eğimi kontrolü: {exc}")
+        deskewed = None
+    if deskewed is not None:
+        png, width, height, angle = deskewed
+        with fitz.open() as copy:
+            corrected = copy.new_page(width=width, height=height)
+            corrected.insert_image(corrected.rect, stream=png)
+            for scale in (2.0, 3.0):
+                values = attempt(
+                    f"Eğimi düzeltilmiş OCR ({angle:.2f}°, {scale:g}x)",
+                    lambda: _ocr_boxes(corrected, scale=scale),
+                    scale, source_page=corrected,
+                )
+                if values is not None:
+                    return values
+            values = attempt(
+                "Eğimi düzeltilmiş bölgesel OCR",
+                lambda: _ocr_banded_boxes(corrected), 3.0, source_page=corrected,
             )
             if values is not None:
                 return values
